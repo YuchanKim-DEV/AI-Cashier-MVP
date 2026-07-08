@@ -23,6 +23,16 @@ import certifi
 import websockets
 
 from src.tools.handlers import TOOLS
+from src.tools.menu import MENU_DATA
+
+
+def _menu_grounding() -> str:
+    """실제 메뉴/가격을 프롬프트에 주입 — 없는 메뉴·가격 할루시네이션 방지."""
+    lines = []
+    for cat, items in MENU_DATA.items():
+        parts = [f"{it['name']}({it['price']}원)" for it in items]
+        lines.append(f"[{cat}] " + ", ".join(parts))
+    return "\n".join(lines)
 
 
 REALTIME_URL = "wss://api.openai.com/v1/realtime"
@@ -262,11 +272,13 @@ class RealtimeClient:
 
     def _make_prompt(self, lang: str = "ko", user_name: str = None, is_new_user: bool = True) -> str:
         """언어 및 사용자 이름에 맞는 시스템 프롬프트 생성."""
+        menu = _menu_grounding()
         if lang == "en":
             prompt = (
                 "You are 'Kay', a cheerful and professional AI cashier at a burger restaurant. "
                 "Talk exactly like a real service-industry employee — warm, upbeat, slightly formal but natural. "
                 "Think of a friendly Starbucks barista tone. No robotic phrases. Respond ONLY in English.\n"
+                f"MENU (only these items exist — never invent items, prices, discounts or events):\n{menu}\n"
                 "Rules:\n"
                 "- Call add_to_cart immediately when customer mentions any menu item (no confirmation)\n"
                 "- Call remove_from_cart when customer wants to remove something\n"
@@ -283,6 +295,7 @@ class RealtimeClient:
             prompt = (
                 "너는 햄버거 가게 카운터 직원 '케이'야. 진짜 서비스직 직원처럼 밝고 친절하게 말해.\n"
                 "말투: 카페 직원처럼 따뜻하고 활기차게. 존댓말 사용. 딱딱하거나 로봇 같은 말투 절대 금지. 한국어만.\n"
+                f"메뉴 (아래 항목만 존재 — 없는 메뉴/가격/할인/이벤트 절대 지어내지 마):\n{menu}\n"
                 "예시 말투:\n"
                 "  - '네, 치즈버거 바로 담아드릴게요~!'\n"
                 "  - '맛있는 선택이세요! 감자튀김도 추가해 드릴까요?'\n"

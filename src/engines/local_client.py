@@ -40,10 +40,12 @@ def _menu_text() -> str:
 def _stt_hint() -> str:
     """STT 힌트 — 메뉴명 등 도메인 어휘로 오인식(예: 치즈버거→지즈버거) 감소."""
     names = [it["name"] for items in MENU_DATA.values() for it in items]
-    return "주문: " + ", ".join(names) + ", 세트, 결제, 추천, 취소, 장바구니."
+    return ("햄버거 가게 주문: " + ", ".join(names)
+            + ", 세트, 결제할게요, 추천해주세요, 빼주세요, 장바구니, 앱카드, 현장카드, 주세요.")
 
 
-def _system_prompt(lang: str, user_name: Optional[str], is_new_user: bool) -> str:
+def _system_prompt(lang: str, user_name: Optional[str], is_new_user: bool,
+                   preferences: Optional[str] = None) -> str:
     menu = _menu_text()
     if lang == "en":
         p = (
@@ -57,12 +59,15 @@ def _system_prompt(lang: str, user_name: Optional[str], is_new_user: bool) -> st
             "- Call checkout when the order is done (never if the cart is empty).\n"
             "- On the payment screen, call select_payment when they mention app card or physical card.\n"
             "- If a request is not on the menu, say so honestly. Do NOT make things up.\n"
+            "- NEVER mention discounts, freebies, or events — none exist.\n"
             "- Do not repeat greetings."
         )
         if is_new_user and not user_name:
             p += "\n- Once, near checkout, mention they can register name+phone in the app for voice ordering next time."
         if user_name:
             p += f"\n- This customer is {user_name}. Greet them warmly by name once."
+        if preferences:
+            p += f"\n- Past preference of this customer: {preferences}. Use it for recommendations when relevant."
     else:
         p = (
             "너는 햄버거 가게(오투오버거) 카운터 직원 '케이'야. 진짜 서비스직 직원처럼 밝고 친절하게, "
@@ -70,17 +75,25 @@ def _system_prompt(lang: str, user_name: Optional[str], is_new_user: bool) -> st
             f"메뉴 (아래 항목만 존재 — 없는 메뉴/가격을 절대 지어내지 마):\n{menu}\n"
             "규칙:\n"
             "- 손님이 메뉴 이름을 말하면 즉시 add_to_cart 를 정확한 메뉴명으로 호출해.\n"
+            "- 구어체도 메뉴명으로 변환해 호출: 감튀→감자튀김, 콜라 종류→콜라, 불고기→불고기버거.\n"
             "- 취소하면 remove_from_cart 호출.\n"
             "- 추천은 손님이 물어볼 때만 recommend_menu 호출.\n"
             "- 주문이 끝나면 checkout 호출 (장바구니 비었으면 절대 금지).\n"
             "- 결제 화면에서 앱카드/현장카드 말하면 select_payment 호출.\n"
             "- 메뉴에 없는 요청은 솔직히 없다고 말해. 절대 지어내지 마.\n"
-            "- 인사말 반복 금지."
+            "- 할인/무료/이벤트는 존재하지 않아. 절대 언급 금지.\n"
+            "- 인사말 반복 금지.\n"
+            "예시:\n"
+            "  손님 '치즈버거 하나랑 감튀요' → add_to_cart(치즈버거), add_to_cart(감자튀김) → '네! 치즈버거랑 감자튀김 담아드렸어요~'\n"
+            "  손님 '이제 됐어요, 계산할게요' → checkout() → '결제 화면으로 안내드릴게요!'\n"
+            "  손님 '아메리카노 있어요?' → (툴 호출 없이) '앗, 저희는 커피는 없어요! 콜라나 아이스티는 어떠세요?'"
         )
         if is_new_user and not user_name:
             p += "\n- 결제 즈음 한 번만: '이름이랑 번호 등록하시면 다음엔 목소리로 바로 주문 가능해요, 앱에서 등록되세요~' 라고 안내."
         if user_name:
             p += f"\n- 이 손님은 '{user_name}'님이야. 처음 한 번만 이름 불러 반갑게 맞이해."
+        if preferences:
+            p += f"\n- 이 손님의 지난 취향: {preferences}. 추천할 때 자연스럽게 활용해 (강요 금지)."
     return p
 
 
@@ -113,6 +126,7 @@ class LocalVoiceClient:
         self._lang = "ko"
         self._user_name: Optional[str] = None
         self._is_new_user = True
+        self._preferences: Optional[str] = None   # 인식된 손님의 지난 취향 요약
         self._llm = LocalLLM()
         self._chat_tools = to_chat_tools(TOOLS)
         self._stt_hint = _stt_hint()
@@ -125,12 +139,6 @@ class LocalVoiceClient:
         self._pending_tool_outputs: dict = {}
         self._stop = asyncio.Event()
         self._connected = False
-
-    # ── 시스템 프롬프트 ─────────────────────────────────────────────────────
-    def _messages(self, user_text: str) -> list:
-        sys = {"role": "system", "content": _system_prompt(self._lang, self._user_name, self._is_new_user)}
-        hist = self._history[-16:]     # 최근 16개만 (컨텍스트 절약)
-        return [sys] + hist + [{"role": "user", "content": user_text}]
 
     # ── 연결/수신 루프 ──────────────────────────────────────────────────────
     async def connect(self):
@@ -198,7 +206,8 @@ class LocalVoiceClient:
     async def _llm_turn(self) -> str:
         """LLM 호출 + tool call 루프. 최종 어시스턴트 텍스트 반환."""
         messages = [{"role": "system",
-                     "content": _system_prompt(self._lang, self._user_name, self._is_new_user)}]
+                     "content": _system_prompt(self._lang, self._user_name, self._is_new_user,
+                                               self._preferences)}]
         messages += self._history[-16:]
         for _ in range(4):   # tool 루프 최대 4회
             msg = await self._llm.chat(messages, self._chat_tools)
@@ -264,13 +273,27 @@ class LocalVoiceClient:
             asyncio.create_task(tts.preload("en"))
         print(f"[LocalVoiceClient] 언어 전환: {self._lang}")
 
+    def _load_preferences(self, name: str):
+        """등록 사용자의 지난 취향 요약을 프롬프트 개인화에 로드."""
+        try:
+            from src.tools.user_store import get_all_users
+            for u in get_all_users():
+                if u.get("name") == name and u.get("preferences"):
+                    self._preferences = u["preferences"]
+                    print(f"[LocalVoiceClient] 취향 로드: {self._preferences}")
+                    return
+        except Exception as e:
+            print(f"[LocalVoiceClient] 취향 로드 실패: {e}")
+
     async def update_instructions(self, name: str):
         self._user_name = name
         self._is_new_user = False
+        self._load_preferences(name)
 
     async def greet_returning_user(self, name: str):
         self._user_name = name
         self._is_new_user = False
+        self._load_preferences(name)
         if self._busy or self._response_active:
             return
         greeting = (f"Welcome back, {name}! What can I get for you?"

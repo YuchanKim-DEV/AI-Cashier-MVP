@@ -1,0 +1,10 @@
+# AI 캐셔 전용 모델 — qwen2.5:3b 기반, 파라미터 튜닝을 모델에 굽는다.
+# 갱신: ollama create ai-cashier -f models/Modelfile.ai-cashier
+FROM qwen2.5:3b
+
+# 컨텍스트 확장 (기본 2048 → 4096): 메뉴 grounding 프롬프트 + 대화 히스토리가 잘리지 않게
+PARAMETER num_ctx 4096
+# 할루시네이션 억제 기본값 (요청에서 덮어쓸 수 있음)
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+PARAMETER repeat_penalty 1.1

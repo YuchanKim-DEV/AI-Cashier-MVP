@@ -136,6 +136,27 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
 - **TTS 로봇틱**(MMS romanization): MVP 한계. 업그레이드=MeloTTS.
 - `/tts`(tts-1) 엔드포인트는 여전히 클라우드 死코드 — 미사용.
 
+## 🎓 도메인 지식 주입 "학습" (2026-07-08)
+파인튜닝 대신 모든 레이어에 도메인 지식 주입 (M1 8GB에서 실질적 최선):
+1. **메뉴 매칭 강화** `menu.py`: MENU_ALIASES(감튀→감자튀김 등) + 정규화 + **퍼지 매칭**(difflib 0.65)
+   → STT 오타 "지즈버거 세트"→치즈버거 세트 자동 교정 (E2E 카트 실패 원인 해결). 12/12 유닛 PASS.
+   없는 메뉴(아메리카노 등)는 여전히 None (지어내지 않음).
+2. **STT 힌트 확장** `local_client._stt_hint`: 메뉴명+주문 표현(결제할게요/빼주세요/앱카드...).
+3. **LLM 프롬프트 강화** `local_client._system_prompt`: 구어체 변환 규칙, 3개 예시(few-shot),
+   할인/이벤트 언급 금지, 취향(preferences) 개인화 주입.
+4. **개인화 루프 완성**: 결제 후 저장되는 preferences 를 재방문 인식 시 프롬프트에 로드
+   (`_load_preferences` — 이전엔 저장만 하고 안 읽었음).
+5. **클라우드 백업 프롬프트에도 메뉴 grounding** `realtime/client.py _make_prompt`
+   (이전엔 메뉴가 아예 없어서 할루시네이션 구조적 원인이었음).
+6. **Ollama 전용 모델 `ai-cashier`** (`models/Modelfile.ai-cashier`): qwen2.5:3b 기반,
+   **num_ctx 4096**(기본 2048에서 프롬프트+히스토리 잘림 방지), temp 0.2, repeat_penalty 1.1.
+   `.env LLM_MODEL=ai-cashier`. 재생성: `ollama create ai-cashier -f models/Modelfile.ai-cashier`.
+
+검증 (전부 PASS): 메뉴 매칭 12/12, LLM 도메인 6/6(별칭 주문→정확 툴콜, 아메리카노→정직 거절,
+할인 질문→"없어요", checkout/select_payment/개인화 추천), STT 힌트 유지, 서버 부팅 200.
+⚠️ 관찰: 3B 모델이 가끔 응답 서두에 외국어 토큰 조각(예: "ặt lost,")을 뱉음 — 동작엔 지장 없음.
+심해지면 _speak 전에 정제 필터 추가 검토.
+
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.
   로컬 스택 확정 후 src/engines 추상화 레이어 구현, 각 엔진 단독 테스트 통과.
