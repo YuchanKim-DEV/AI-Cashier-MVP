@@ -106,6 +106,9 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
   - 가격은 서버가 실제 메뉴로 재계산(클라 신뢰 X), 결제는 기존 MockPaymentGateway 재사용.
 - 매장 추가/좌표 변경은 `stores.py`의 `STORES`만 수정. JS 시뮬 좌표는 app.py `STORE_LAT/LNG`(stores.py와 동일하게 유지).
 - 테스트 완료: 입장(안→메뉴/밖→차단), 주문(안→결제성공 13500원/밖→위치불일치 차단), /app HTTP 200.
+- **결제 중 매장 이탈 취소** 추가: 주문하기→결제 진행 화면(약 3초 진행바) 동안 위치를 '🚶 매장 밖'으로
+  바꾸면 결제 즉시 취소(`abortPayment`), 완료 시점에도 서버가 위치 재검증(`finalizePayment`→/api/app_order).
+  결제 진행 화면 `store-paying`, 위치 토글 `loc-in3/out3`.
 
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.

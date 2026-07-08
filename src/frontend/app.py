@@ -2002,7 +2002,24 @@ def _build_app_html() -> str:
         </div>
       </div>
 
-      <!-- 3) 주문 결과 -->
+      <!-- 3) 결제 진행 중 (매장 이탈 감지) -->
+      <div id="store-paying" style="display:none">
+        <div class="panel-title">결제 진행 중</div>
+        <div class="panel-sub">결제가 완료될 때까지 매장 안에 계셔야 해요.<br>매장을 벗어나면 결제가 자동 취소됩니다.</div>
+        <div class="loc-banner">
+          <div class="loc-dot inside" id="pay-dot"></div>
+          <div class="loc-text" id="pay-text">📍 매장 안 · 결제 처리 중...</div>
+        </div>
+        <div class="record-bar" style="width:100%"><div class="record-fill" id="pay-fill" style="width:0%"></div></div>
+        <div class="input-label" style="margin:16px 0 8px">📍 내 위치 (시뮬레이션)</div>
+        <div class="loc-toggle">
+          <div class="loc-opt active" id="loc-in3" onclick="setLoc('in')">🏪 매장 안</div>
+          <div class="loc-opt" id="loc-out3" onclick="setLoc('out')">🚶 매장 밖</div>
+        </div>
+        <div class="info-box">💡 결제 중 '🚶 매장 밖'으로 바꿔보세요 — 결제가 취소됩니다.</div>
+      </div>
+
+      <!-- 4) 주문 결과 -->
       <div id="store-result" style="display:none"></div>
     </div>
 
@@ -2124,6 +2141,8 @@ let currentStore = null;
 let menuData = null;
 let cart = {};                      // { 메뉴명: 수량 }
 let priceMap = {};                  // { 메뉴명: 가격 }
+let _paying = false;                // 결제 진행 중 여부
+let _payTimer = null;
 
 function simLoc() {
   // 매장 안 = 매장 좌표, 매장 밖 = 약 1.1km 떨어진 좌표
@@ -2134,8 +2153,8 @@ function simLoc() {
 
 function setLoc(mode) {
   locMode = mode;
-  ['loc-in','loc-in2'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='in'); });
-  ['loc-out','loc-out2'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='out'); });
+  ['loc-in','loc-in2','loc-in3'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='in'); });
+  ['loc-out','loc-out2','loc-out3'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='out'); });
   const dot = document.getElementById('loc-dot'), txt = document.getElementById('loc-text');
   if (dot && txt) {
     dot.className = 'loc-dot ' + (mode==='in' ? 'inside' : 'outside');
@@ -2146,6 +2165,13 @@ function setLoc(mode) {
     open.textContent = mode==='in' ? '🟢 영업 중 · 매장 안' : '🔴 매장 밖 (주문 불가)';
     open.style.background = mode==='in' ? 'rgba(255,255,255,.2)' : 'rgba(240,68,82,.9)';
   }
+  // 결제 진행 중 매장을 벗어나면 즉시 결제 취소
+  const pdot = document.getElementById('pay-dot'), ptxt = document.getElementById('pay-text');
+  if (pdot && ptxt) {
+    pdot.className = 'loc-dot ' + (mode==='in' ? 'inside' : 'outside');
+    ptxt.textContent = mode==='in' ? '📍 매장 안 · 결제 처리 중...' : '⚠️ 매장을 벗어났습니다!';
+  }
+  if (_paying && mode === 'out') abortPayment();
 }
 
 async function enterStore() {
@@ -2221,52 +2247,92 @@ function updateCartBar() {
   document.getElementById('order-btn').textContent = count>0 ? `${total.toLocaleString()}원 주문하기` : '주문하기';
 }
 
-async function placeOrder() {
+function placeOrder() {
   const items = Object.keys(cart).map(name => ({ name, qty: cart[name] }));
   if (!items.length) { alert('메뉴를 담아주세요.'); return; }
-  const btn = document.getElementById('order-btn');
-  btn.disabled = true; btn.textContent = '결제 중...';
-  const loc = simLoc();
+  if (locMode === 'out') {
+    showFail('📍', '매장 밖이에요', '매장 안에서만 주문·결제가 됩니다.<br>위치를 \'🏪 매장 안\'으로 바꿔주세요.');
+    return;
+  }
+  // 결제 진행 화면으로 전환 (이 동안 매장을 벗어나면 취소됨)
+  _paying = true;
+  document.getElementById('store-menu').style.display='none';
+  document.getElementById('store-result').style.display='none';
+  document.getElementById('store-paying').style.display='block';
+  setLoc(locMode);
+  let progress = 0;
+  document.getElementById('pay-fill').style.width = '0%';
+  _payTimer = setInterval(() => {
+    if (!_paying) return;
+    progress += 4;
+    document.getElementById('pay-fill').style.width = Math.min(progress,100) + '%';
+    if (progress >= 100) { clearInterval(_payTimer); finalizePayment(); }
+  }, 120);   // 약 3초
+}
+
+function abortPayment() {
+  _paying = false;
+  if (_payTimer) clearInterval(_payTimer);
+  document.getElementById('store-paying').style.display='none';
+  showFail('🚶', '결제가 취소됐어요',
+    '결제 도중 <strong>매장을 벗어나</strong> 결제가 자동 취소됐습니다.<br>매장 안으로 돌아와 다시 시도해주세요.');
+}
+
+async function finalizePayment() {
+  const items = Object.keys(cart).map(name => ({ name, qty: cart[name] }));
+  const loc = simLoc();   // 결제 확정 순간의 위치로 서버가 최종 검증
   try {
     const resp = await fetch('/api/app_order', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ store_id: currentStore.id, items, lat: loc.lat, lng: loc.lng }),
     });
     const r = await resp.json();
-    btn.disabled = false; updateCartBar();
-    const box = document.getElementById('store-result');
+    _paying = false;
+    document.getElementById('store-paying').style.display='none';
     if (r.ok) {
       const lines = r.items.map(i => `${i.name} x${i.qty}`).join(', ');
-      box.innerHTML = `<div class="order-result">
-        <div class="big-icon">🎉</div>
-        <div class="rt">주문 완료!</div>
-        <div class="rd">${currentStore.name}<br>${lines}<br><strong>${r.total.toLocaleString()}원</strong> 결제 완료 · ${r.transaction_id}</div>
-        <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
-      </div>`;
-      document.getElementById('store-menu').style.display='none';
-      box.style.display='block';
+      showSuccess(`${currentStore.name}<br>${lines}<br><strong>${r.total.toLocaleString()}원</strong> 결제 완료 · ${r.transaction_id}`);
+      cart = {}; updateCartBar();
     } else if (r.reason === 'location_mismatch') {
-      box.innerHTML = `<div class="order-result">
-        <div class="big-icon">📍</div>
-        <div class="rt">위치가 매장과 달라요</div>
-        <div class="order-fail">${r.message}</div>
-        <div class="rd">폰 위치가 매장 안일 때만 주문·결제가 됩니다.<br>위치를 '🏪 매장 안'으로 바꾸고 다시 시도해보세요.</div>
-        <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
-      </div>`;
-      document.getElementById('store-menu').style.display='none';
-      box.style.display='block';
+      showFail('🚶', '결제가 취소됐어요',
+        '결제 도중 <strong>매장을 벗어나</strong> 결제가 취소됐습니다.<br>' + (r.message || ''));
     } else {
-      alert(r.message || r.error || '주문에 실패했습니다.');
+      showFail('⚠️', '결제 실패', r.message || r.error || '다시 시도해주세요.');
     }
   } catch(e) {
-    btn.disabled=false; updateCartBar();
-    alert('주문 중 오류: ' + e.message);
+    _paying = false;
+    document.getElementById('store-paying').style.display='none';
+    showFail('⚠️', '오류', e.message);
   }
+}
+
+function showSuccess(desc) {
+  const box = document.getElementById('store-result');
+  box.innerHTML = `<div class="order-result">
+    <div class="big-icon">🎉</div>
+    <div class="rt">주문 완료!</div>
+    <div class="rd">${desc}</div>
+    <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
+  </div>`;
+  box.style.display='block';
+}
+function showFail(icon, title, desc) {
+  const box = document.getElementById('store-result');
+  box.innerHTML = `<div class="order-result">
+    <div class="big-icon">${icon}</div>
+    <div class="rt">${title}</div>
+    <div class="order-fail">${desc}</div>
+    <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
+  </div>`;
+  document.getElementById('store-menu').style.display='none';
+  box.style.display='block';
 }
 
 function backToMenu() {
   document.getElementById('store-result').style.display='none';
+  document.getElementById('store-paying').style.display='none';
   document.getElementById('store-menu').style.display='block';
+  setLoc(locMode);
 }
 
 function switchView(v) {
