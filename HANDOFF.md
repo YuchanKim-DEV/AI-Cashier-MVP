@@ -110,6 +110,14 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
   바꾸면 결제 즉시 취소(`abortPayment`), 완료 시점에도 서버가 위치 재검증(`finalizePayment`→/api/app_order).
   결제 진행 화면 `store-paying`, 위치 토글 `loc-in3/out3`.
 
+## 💳 키오스크 앱카드 위치 시뮬 (2026-07-08 추가)
+- 기존: 앱카드 결제는 **항상 위치 차단**(하드코딩)이었음 → 시뮬이라 **두 경우 다 시연** 가능하게 변경.
+- 체크아웃 화면에 **위치 토글**(🏪 매장 안 / 🚶 매장 밖) 추가. 앱카드 결제 시:
+  - 매장 안 → 결제 진행(성공), 매장 밖 → 차단 멘트.
+- `session.at_store`(기본 True) + `POST /action/set_location {at_store}` + main.py `set_location` 액션.
+- main.py `process_payment` app_card 분기: `session.at_store` 검사.
+- **결제 전 등록**: 체크아웃 화면 identify 폼(이름+전화번호)으로 신규 손님이 결제 전에 등록 가능(음성은 세션 버퍼에서 추출). 이미 동작함 — 확인 완료.
+
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.
   로컬 스택 확정 후 src/engines 추상화 레이어 구현, 각 엔진 단독 테스트 통과.

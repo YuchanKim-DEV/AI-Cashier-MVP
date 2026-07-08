@@ -213,6 +213,14 @@ async def action_retry(request: Request):
     return {"ok": True}
 
 
+@app.post("/action/set_location")
+async def action_set_location(request: Request):
+    """앱카드 위치 시뮬 토글 (매장 안/밖)."""
+    body = await request.json()
+    await _enqueue(_get_sid(request), {"type": "set_location", "at_store": bool(body.get("at_store", True))})
+    return {"ok": True}
+
+
 @app.post("/action/identify")
 async def action_identify(request: Request):
     body = await request.json()
@@ -1190,6 +1198,14 @@ body {
         <div id="checkout-summary"></div>
         <div>
           <div class="pay-section-title">결제 수단</div>
+          <!-- 앱카드 위치 시뮬레이션 (매장 안=결제 가능 / 매장 밖=차단) -->
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:12px;">
+            <div style="font-size:.76rem;color:var(--muted2);margin-bottom:7px;">📍 앱카드 위치 (시뮬레이션)</div>
+            <div style="display:flex;gap:8px;">
+              <button id="loc-sim-in" class="btn btn-sm" style="flex:1;" onclick="setKioskLoc(true)">🏪 매장 안</button>
+              <button id="loc-sim-out" class="btn btn-sm" style="flex:1;" onclick="setKioskLoc(false)">🚶 매장 밖</button>
+            </div>
+          </div>
           <div class="pay-buttons">
             <button class="pay-method-btn" onclick="selectPayment('app_card')">
               <div class="pay-method-icon">📱</div>
@@ -1696,11 +1712,20 @@ async function post(url, data) {
 function startOrder()            { post('/action/start', {}); }
 function checkout()              { post('/action/checkout', {}); }
 function selectPayment(method)   { post('/action/payment', {method}); }
+function setKioskLoc(atStore)    { post('/action/set_location', {at_store: atStore}); }
+function updateLocToggle(atStore) {
+  const inB = document.getElementById('loc-sim-in'), outB = document.getElementById('loc-sim-out');
+  if (!inB || !outB) return;
+  inB.className  = 'btn btn-sm ' + (atStore ? 'btn-primary' : 'btn-outline');
+  outB.className = 'btn btn-sm ' + (atStore ? 'btn-outline' : 'btn-primary');
+  inB.style.flex = outB.style.flex = '1';
+}
 function saveVoice(save)         { post('/action/save_voice', {save}); }
 function retryVerification()     { post('/action/retry_verification', {}); }
 function confirmAppPayment(m)    { post('/action/app_payment_confirm', {method: m}); }
 
 function updateCheckoutIdentity(state) {
+  updateLocToggle(state.at_store !== false);   // 앱카드 위치 시뮬 토글 상태 반영
   const greetEl  = document.getElementById('checkout-greeting');
   const identEl  = document.getElementById('checkout-identify');
   if (!greetEl || !identEl) return;

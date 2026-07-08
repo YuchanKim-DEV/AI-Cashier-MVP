@@ -36,6 +36,7 @@ class SessionState:
     # 결제
     payment_method: Optional[str] = None  # app_card|physical_card
     transaction_id: Optional[str] = None
+    at_store: bool = True             # 앱카드 위치 시뮬: True=매장 안(결제 가능) / False=매장 밖(차단)
 
     # 목소리 누적 (3초 이상이면 저장 프롬프트 표시)
     voice_duration: float = 0.0      # 누적 발화 시간(초)
@@ -59,6 +60,7 @@ class SessionState:
             "cart_total": self.cart_total,
             "payment_method": self.payment_method,
             "transaction_id": self.transaction_id,
+            "at_store": self.at_store,
             "voice_duration": round(self.voice_duration, 1),
         }
 

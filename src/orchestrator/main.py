@@ -400,10 +400,14 @@ async def run_session(session_id: str):
             await asyncio.sleep(3)
         elif method == "app_card":
             name = session.user_name or "고객"
-            await client.send_alert(
-                f"앗, {name}님이 현재 오투오버거에 위치하지 않아 결제가 불가능해요."
-            )
-            return
+            # 위치 시뮬레이션: 매장 안이면 결제 진행, 매장 밖이면 차단 (둘 다 시연 가능)
+            if not session.at_store:
+                await client.send_alert(
+                    f"앗, {name}님이 현재 오투오버거 매장에 위치하지 않아 앱카드 결제가 불가능해요. "
+                    "매장 안에서 다시 시도해 주세요."
+                )
+                return
+            # 매장 안 — 앱카드 결제 진행
         await _do_payment()
 
     async def action_handler():
@@ -530,6 +534,12 @@ async def run_session(session_id: str):
             elif atype == "retry_verification":
                 session.failed_verifications = 0
                 _push({"screen": "ordering", "speaker_verified": None})
+
+            elif atype == "set_location":
+                # 앱카드 위치 시뮬 토글 (매장 안/밖)
+                session.at_store = bool(action.get("at_store", True))
+                push_session_state(session_id, session.to_dict())
+                print(f"[{sid}] 위치 시뮬: {'매장 안' if session.at_store else '매장 밖'}")
 
     # ── 엔진 팩토리: ENGINE_MODE=local → 로컬 파이프라인, cloud → OpenAI Realtime ──
     _client_cbs = dict(
