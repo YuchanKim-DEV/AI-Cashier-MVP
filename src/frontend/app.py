@@ -46,6 +46,7 @@ def _default_state() -> dict:
         "cart_total": 0,
         "payment_method": None,
         "transaction_id": None,
+        "at_store": True,
         "voice_duration": 0.0,
     }
 

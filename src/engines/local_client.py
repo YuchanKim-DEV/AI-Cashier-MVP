@@ -37,6 +37,12 @@ def _menu_text() -> str:
     return "\n".join(lines)
 
 
+def _stt_hint() -> str:
+    """STT 힌트 — 메뉴명 등 도메인 어휘로 오인식(예: 치즈버거→지즈버거) 감소."""
+    names = [it["name"] for items in MENU_DATA.values() for it in items]
+    return "주문: " + ", ".join(names) + ", 세트, 결제, 추천, 취소, 장바구니."
+
+
 def _system_prompt(lang: str, user_name: Optional[str], is_new_user: bool) -> str:
     menu = _menu_text()
     if lang == "en":
@@ -109,6 +115,7 @@ class LocalVoiceClient:
         self._is_new_user = True
         self._llm = LocalLLM()
         self._chat_tools = to_chat_tools(TOOLS)
+        self._stt_hint = _stt_hint()
         self._vad = UtteranceVAD()
         self._history: list = []      # 대화 히스토리 (system 제외)
         self._utt_buffer = bytearray()
@@ -167,7 +174,9 @@ class LocalVoiceClient:
         """STT → LLM(tool loop) → TTS 한 턴."""
         try:
             self._cancelled = False
-            text, detected = await stt.transcribe(audio, sample_rate=config.AUDIO_SAMPLE_RATE)
+            hint = self._stt_hint if self._lang != "en" else None
+            text, detected = await stt.transcribe(audio, sample_rate=config.AUDIO_SAMPLE_RATE,
+                                                  initial_prompt=hint)
             text = (text or "").strip()
             print(f"[LocalVoiceClient] STT: {text!r} (lang={detected})")
             if not text:
