@@ -43,6 +43,8 @@ from src.frontend.app import (
 )
 from src.orchestrator.session import SessionState
 from src.realtime.client import RealtimeClient
+from src.engines import config as engine_config
+from src.engines.local_client import LocalVoiceClient
 from src.audio.speaker_verify import preload_model, extract_embedding, find_user, cosine_sim
 from src.tools.cart import CartManager
 from src.tools.handlers import FunctionCallHandler
@@ -82,9 +84,10 @@ async def run_session(session_id: str):
         push_session_state(session_id, session.to_dict())
 
     api_key = os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
-        print(f"[{sid}] OPENAI_API_KEY 없음")
+    if not engine_config.is_local() and not api_key:
+        print(f"[{sid}] OPENAI_API_KEY 없음 (cloud 모드)")
         return
+    print(f"[{sid}] 엔진 모드: {engine_config.engine_mode()}")
 
     _voice_buffer: bytearray = bytearray()
     _MAX_BUFFER   = 24000 * 2 * 6
@@ -344,26 +347,34 @@ async def run_session(session_id: str):
         if not session.user_name or len(session.conversation_log) < 3:
             return
         try:
-            from openai import AsyncOpenAI
-            oai = AsyncOpenAI(api_key=api_key)
             convo = "\n".join(
                 f"{'고객' if m['role']=='user' else 'AI'}: {m['text']}"
                 for m in session.conversation_log[:20]
             )
-            resp = await oai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content":
-                     "AI 캐셔 대화를 분석해 고객 취향을 한 문장으로 요약하세요. "
-                     "주문한 메뉴, 선호도, 특이사항을 포함하세요. "
-                     "예: '불고기버거+감자튀김 조합 선호, 음료는 콜라 선택함'"},
-                    {"role": "user", "content": convo},
-                ],
-                max_tokens=80,
+            sys_prompt = (
+                "AI 캐셔 대화를 분석해 고객 취향을 한 문장으로 요약하세요. "
+                "주문한 메뉴, 선호도, 특이사항을 포함하세요. "
+                "예: '불고기버거+감자튀김 조합 선호, 음료는 콜라 선택함'"
             )
-            summary = resp.choices[0].message.content.strip()
-            update_user_preferences(session.user_name, summary)
-            print(f"[{sid}] 취향 저장: {summary}")
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": convo},
+            ]
+            if engine_config.is_local():
+                # 로컬 LLM(Ollama) 으로 요약 — API 비용 0
+                from src.engines.llm import LocalLLM
+                msg = await LocalLLM().chat(messages)
+                summary = (msg.content or "").strip()
+            else:
+                from openai import AsyncOpenAI
+                oai = AsyncOpenAI(api_key=api_key)
+                resp = await oai.chat.completions.create(
+                    model="gpt-4o-mini", messages=messages, max_tokens=80,
+                )
+                summary = resp.choices[0].message.content.strip()
+            if summary:
+                update_user_preferences(session.user_name, summary)
+                print(f"[{sid}] 취향 저장: {summary}")
         except Exception as e:
             print(f"[{sid}] 취향 저장 실패: {e}")
 
@@ -520,10 +531,8 @@ async def run_session(session_id: str):
                 session.failed_verifications = 0
                 _push({"screen": "ordering", "speaker_verified": None})
 
-    client = RealtimeClient(
-        api_key=api_key,
-        model=model,
-        voice=voice,
+    # ── 엔진 팩토리: ENGINE_MODE=local → 로컬 파이프라인, cloud → OpenAI Realtime ──
+    _client_cbs = dict(
         on_audio_delta=on_audio_delta,
         on_text_delta=on_text_delta,
         on_ai_transcript_done=on_ai_transcript_done,
@@ -534,6 +543,10 @@ async def run_session(session_id: str):
         on_session_ready=on_session_ready,
         on_status_update=on_status_update,
     )
+    if engine_config.is_local():
+        client = LocalVoiceClient(**_client_cbs)
+    else:
+        client = RealtimeClient(api_key=api_key, model=model, voice=voice, **_client_cbs)
 
     try:
         await client.connect()
