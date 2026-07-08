@@ -274,6 +274,67 @@ async def api_voice_register(request: Request):
     return {"ok": True, "has_embedding": emb is not None}
 
 
+@app.post("/api/store/enter")
+async def api_store_enter(request: Request):
+    """앱이 매장에 '입장' — 폰 위치(시뮬)로 근처 매장 감지 후 매장+메뉴 반환."""
+    from src.tools.stores import find_nearby, store_menu
+    body = await request.json()
+    try:
+        lat = float(body.get("lat"))
+        lng = float(body.get("lng"))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "위치 정보가 올바르지 않습니다."}
+    store = find_nearby(lat, lng)
+    if not store:
+        return {"ok": False, "reason": "no_store",
+                "message": "주변에 이용 가능한 매장이 없습니다. 매장 안에서 다시 시도해주세요."}
+    return {"ok": True, "store": store, "menu": store_menu(store["id"])}
+
+
+@app.post("/api/app_order")
+async def api_app_order(request: Request):
+    """앱 주문 — 폰 위치가 매장 반경 안일 때만 결제 진행 (geofence 게이트)."""
+    from src.tools.stores import check_at_store, get_store
+    from src.tools.menu import MENU_BY_NAME
+    from src.tools.payment import payment_gateway
+
+    body = await request.json()
+    store_id = body.get("store_id", "")
+    items = body.get("items", []) or []
+    try:
+        lat = float(body.get("lat")); lng = float(body.get("lng"))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "위치 정보가 올바르지 않습니다."}
+
+    if not get_store(store_id):
+        return {"ok": False, "error": "매장을 찾을 수 없습니다."}
+    if not items:
+        return {"ok": False, "error": "장바구니가 비어있습니다."}
+
+    # 위치 검증 (핵심 시나리오)
+    geo = check_at_store(store_id, lat, lng)
+    if not geo["ok"]:
+        return {"ok": False, "reason": geo["reason"], "message": geo["message"], "geo": geo}
+
+    # 가격은 서버의 실제 메뉴로 재계산 (클라이언트 값 신뢰 안 함)
+    total, order_lines = 0, []
+    for it in items:
+        m = MENU_BY_NAME.get(it.get("name", ""))
+        if not m:
+            continue
+        qty = max(1, int(it.get("qty", 1)))
+        total += m["price"] * qty
+        order_lines.append({"name": m["name"], "price": m["price"], "qty": qty})
+    if not order_lines:
+        return {"ok": False, "error": "주문 가능한 메뉴가 없습니다."}
+
+    result = await payment_gateway.process(amount=total, method="app_card")
+    if not result.get("success"):
+        return {"ok": False, "error": "결제에 실패했습니다."}
+    return {"ok": True, "transaction_id": result["transaction_id"],
+            "total": total, "items": order_lines, "geo": geo}
+
+
 @app.websocket("/ws/audio")
 async def audio_ws(websocket: WebSocket, sid: str = ""):
     await websocket.accept()
@@ -1827,6 +1888,56 @@ def _build_app_html() -> str:
     background: var(--accent-lt); border-radius: 10px; padding: 12px;
     font-size: .8rem; color: var(--accent); margin-bottom: 14px; line-height: 1.6;
   }
+  /* ── 매장 주문 시나리오 ── */
+  .loc-banner {
+    display: flex; align-items: center; gap: 10px; background: white;
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+  }
+  .loc-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .loc-dot.inside { background: var(--green); box-shadow: 0 0 0 4px var(--green-lt); }
+  .loc-dot.outside { background: var(--red); box-shadow: 0 0 0 4px #FEECEC; }
+  .loc-text { font-size: .8rem; color: var(--text2); line-height: 1.4; }
+  .loc-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
+  .loc-opt {
+    flex: 1; text-align: center; padding: 10px; border-radius: 10px; cursor: pointer;
+    border: 1.5px solid var(--border); font-size: .8rem; font-weight: 600; color: var(--muted); background: white;
+  }
+  .loc-opt.active { border-color: var(--accent); background: var(--accent-lt); color: var(--accent); }
+  .store-card {
+    background: linear-gradient(135deg, var(--accent), #1B64DA); color: white;
+    border-radius: 16px; padding: 18px; margin-bottom: 16px;
+  }
+  .store-name { font-size: 1.15rem; font-weight: 800; margin-bottom: 4px; }
+  .store-addr { font-size: .76rem; opacity: .85; }
+  .store-open { display:inline-block; margin-top:10px; background: rgba(255,255,255,.2); border-radius: 99px; padding: 3px 10px; font-size: .68rem; font-weight: 600; }
+  .menu-cat { font-size: .82rem; font-weight: 800; color: var(--text); margin: 14px 0 8px; }
+  .menu-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: white; border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .menu-item-info { flex: 1; }
+  .menu-item-name { font-size: .88rem; font-weight: 700; color: var(--text); }
+  .menu-item-price { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .menu-add {
+    width: 30px; height: 30px; border-radius: 8px; border: none; background: var(--accent-lt);
+    color: var(--accent); font-size: 1.1rem; font-weight: 700; cursor: pointer; flex-shrink: 0;
+  }
+  .qty-ctrl { display: flex; align-items: center; gap: 10px; }
+  .qty-btn { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: white; font-size: 1rem; font-weight: 700; color: var(--text2); cursor: pointer; }
+  .qty-num { font-size: .85rem; font-weight: 700; min-width: 16px; text-align: center; }
+  .cart-bar {
+    position: sticky; bottom: 0; background: white; border-top: 1px solid var(--border);
+    padding: 12px 0 4px; margin-top: 10px;
+  }
+  .cart-summary { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .cart-total-label { font-size: .8rem; color: var(--text2); }
+  .cart-total-amt { font-size: 1.05rem; font-weight: 800; color: var(--text); }
+  .order-result { text-align: center; padding: 20px 0; }
+  .order-result .big-icon { font-size: 3.4rem; margin-bottom: 12px; }
+  .order-result .rt { font-size: 1.15rem; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+  .order-result .rd { font-size: .82rem; color: var(--muted); line-height: 1.6; margin-bottom: 16px; }
+  .order-fail { background: #FEECEC; color: var(--red); border-radius: 12px; padding: 14px; font-size: .84rem; line-height: 1.6; margin-bottom: 14px; }
 </style>
 </head>
 <body>
@@ -1839,7 +1950,7 @@ def _build_app_html() -> str:
     <div class="app-logo">🤖 AI Cashier</div>
     <div class="app-tagline">목소리로 주문하는 스마트 캐셔</div>
   </div>
-  <div class="steps" id="steps">
+  <div class="steps" id="steps" style="display:none">
     <div class="step active" id="step-0" onclick="goStep(0)"><div class="step-dot">1</div><div class="step-label">본인확인</div></div>
     <div class="step-line" id="line-0"></div>
     <div class="step" id="step-1" onclick="goStep(1)"><div class="step-dot">2</div><div class="step-label">목소리</div></div>
@@ -1851,6 +1962,52 @@ def _build_app_html() -> str:
     <div class="step" id="step-4" onclick="goStep(4)"><div class="step-dot">✓</div><div class="step-label">완료</div></div>
   </div>
   <div class="app-content">
+    <!-- ══ 매장 주문 뷰 (홈) ══ -->
+    <div id="view-store">
+      <!-- 1) 매장 감지 -->
+      <div id="store-locating">
+        <div class="panel-title">매장 주문</div>
+        <div class="panel-sub">앱을 켜고 매장에 입장하면 자동으로 매장 메뉴가 열려요.</div>
+        <div class="loc-banner">
+          <div class="loc-dot" id="loc-dot"></div>
+          <div class="loc-text" id="loc-text">현재 위치를 확인하는 중...</div>
+        </div>
+        <div class="input-label" style="margin-bottom:8px">📍 내 위치 (시뮬레이션)</div>
+        <div class="loc-toggle">
+          <div class="loc-opt active" id="loc-in" onclick="setLoc('in')">🏪 매장 안</div>
+          <div class="loc-opt" id="loc-out" onclick="setLoc('out')">🚶 매장 밖</div>
+        </div>
+        <div class="info-box">💡 실제 서비스에선 GPS로 자동 판별됩니다. 지금은 위치를 수동으로 바꿔 시나리오를 확인할 수 있어요.</div>
+        <button class="btn-app btn-primary-app" onclick="enterStore()">🏪 매장 입장하기</button>
+      </div>
+
+      <!-- 2) 매장 메뉴 + 장바구니 -->
+      <div id="store-menu" style="display:none">
+        <div class="store-card">
+          <div class="store-name" id="sc-name">오투오버거</div>
+          <div class="store-addr" id="sc-addr"></div>
+          <span class="store-open" id="sc-open">🟢 영업 중 · 매장 안</span>
+        </div>
+        <div class="loc-toggle">
+          <div class="loc-opt active" id="loc-in2" onclick="setLoc('in')">🏪 매장 안</div>
+          <div class="loc-opt" id="loc-out2" onclick="setLoc('out')">🚶 매장 밖</div>
+        </div>
+        <div id="menu-list"></div>
+        <div class="cart-bar">
+          <div class="cart-summary">
+            <span class="cart-total-label">총 <span id="cart-count">0</span>개</span>
+            <span class="cart-total-amt" id="cart-total">0원</span>
+          </div>
+          <button class="btn-app btn-primary-app" id="order-btn" onclick="placeOrder()">주문하기</button>
+        </div>
+      </div>
+
+      <!-- 3) 주문 결과 -->
+      <div id="store-result" style="display:none"></div>
+    </div>
+
+    <!-- ══ 등록 뷰 (내 정보) ══ -->
+    <div id="view-register" style="display:none">
     <div class="panel active" id="panel-0">
       <div class="panel-title">안녕하세요!</div>
       <div class="panel-sub">이름과 전화번호로 간단히 등록하세요.</div>
@@ -1940,11 +2097,12 @@ def _build_app_html() -> str:
         <button class="btn-app btn-outline-app" style="margin-top:12px" onclick="window.close()">키오스크로 돌아가기</button>
       </div>
     </div>
+    </div><!-- /view-register -->
   </div>
   <div class="app-nav">
-    <div class="nav-item active"><div class="nav-icon">🏠</div>홈</div>
+    <div class="nav-item active" id="nav-home" onclick="switchView('store')"><div class="nav-icon">🏠</div>홈</div>
     <div class="nav-item"><div class="nav-icon">📋</div>주문내역</div>
-    <div class="nav-item"><div class="nav-icon">👤</div>내 정보</div>
+    <div class="nav-item" id="nav-me" onclick="switchView('register')"><div class="nav-icon">👤</div>내 정보</div>
     <div class="nav-item"><div class="nav-icon">⚙️</div>설정</div>
   </div>
 </div>
@@ -1957,6 +2115,168 @@ let _mediaRecorder = null;
 let _recChunks = [];
 let _recStream = null;
 let _recordedAudioB64 = null;
+
+// ══ 매장 주문 시나리오 ══
+// 시뮬레이션 좌표 (서버 stores.py 의 o2o-gangnam 과 동일)
+const STORE_LAT = 37.498095, STORE_LNG = 127.027610;
+let locMode = 'in';                 // 'in'(매장 안) | 'out'(매장 밖)
+let currentStore = null;
+let menuData = null;
+let cart = {};                      // { 메뉴명: 수량 }
+let priceMap = {};                  // { 메뉴명: 가격 }
+
+function simLoc() {
+  // 매장 안 = 매장 좌표, 매장 밖 = 약 1.1km 떨어진 좌표
+  return locMode === 'in'
+    ? { lat: STORE_LAT, lng: STORE_LNG }
+    : { lat: STORE_LAT + 0.01, lng: STORE_LNG + 0.01 };
+}
+
+function setLoc(mode) {
+  locMode = mode;
+  ['loc-in','loc-in2'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='in'); });
+  ['loc-out','loc-out2'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='out'); });
+  const dot = document.getElementById('loc-dot'), txt = document.getElementById('loc-text');
+  if (dot && txt) {
+    dot.className = 'loc-dot ' + (mode==='in' ? 'inside' : 'outside');
+    txt.textContent = mode==='in' ? '📍 매장 반경 안에 있습니다.' : '📍 매장에서 떨어져 있습니다.';
+  }
+  const open = document.getElementById('sc-open');
+  if (open) {
+    open.textContent = mode==='in' ? '🟢 영업 중 · 매장 안' : '🔴 매장 밖 (주문 불가)';
+    open.style.background = mode==='in' ? 'rgba(255,255,255,.2)' : 'rgba(240,68,82,.9)';
+  }
+}
+
+async function enterStore() {
+  const loc = simLoc();
+  try {
+    const resp = await fetch('/api/store/enter', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(loc),
+    });
+    const r = await resp.json();
+    if (!r.ok) {
+      const dot=document.getElementById('loc-dot'), txt=document.getElementById('loc-text');
+      dot.className='loc-dot outside'; txt.textContent = r.message || '주변 매장이 없습니다.';
+      return;
+    }
+    currentStore = r.store; menuData = r.menu; cart = {};
+    document.getElementById('sc-name').textContent = r.store.name;
+    document.getElementById('sc-addr').textContent = r.store.address + ' · 약 ' + Math.round(r.store.distance_m) + 'm';
+    renderMenu();
+    updateCartBar();
+    document.getElementById('store-locating').style.display='none';
+    document.getElementById('store-result').style.display='none';
+    document.getElementById('store-menu').style.display='block';
+    setLoc(locMode);
+  } catch(e) { alert('매장 입장 중 오류: ' + e.message); }
+}
+
+function renderMenu() {
+  priceMap = {};
+  let html = '';
+  for (const cat in menuData) {
+    html += `<div class="menu-cat">${cat}</div>`;
+    for (const it of menuData[cat]) {
+      priceMap[it.name] = it.price;
+      html += `<div class="menu-item" id="mi-${it.id}">
+        <div class="menu-item-info">
+          <div class="menu-item-name">${it.name}</div>
+          <div class="menu-item-price">${it.price.toLocaleString()}원${it.includes ? ' · '+it.includes : ''}</div>
+        </div>
+        <div id="ctrl-${it.id}">
+          <button class="menu-add" onclick="addItem('${it.name}','${it.id}')">+</button>
+        </div>
+      </div>`;
+    }
+  }
+  document.getElementById('menu-list').innerHTML = html;
+}
+
+function findId(name) {
+  for (const cat in menuData) for (const it of menuData[cat]) if (it.name===name) return it.id;
+  return null;
+}
+function renderCtrl(name) {
+  const id = findId(name); if(!id) return;
+  const ctrl = document.getElementById('ctrl-'+id); if(!ctrl) return;
+  const q = cart[name] || 0;
+  ctrl.innerHTML = q > 0
+    ? `<div class="qty-ctrl">
+         <button class="qty-btn" onclick="decItem('${name}')">−</button>
+         <span class="qty-num">${q}</span>
+         <button class="qty-btn" onclick="addItem('${name}','${id}')">+</button>
+       </div>`
+    : `<button class="menu-add" onclick="addItem('${name}','${id}')">+</button>`;
+}
+function addItem(name) { cart[name]=(cart[name]||0)+1; renderCtrl(name); updateCartBar(); }
+function decItem(name) { cart[name]=(cart[name]||0)-1; if(cart[name]<=0) delete cart[name]; renderCtrl(name); updateCartBar(); }
+
+function updateCartBar() {
+  let count=0, total=0;
+  for (const name in cart) { count += cart[name]; total += (priceMap[name]||0)*cart[name]; }
+  document.getElementById('cart-count').textContent = count;
+  document.getElementById('cart-total').textContent = total.toLocaleString()+'원';
+  document.getElementById('order-btn').textContent = count>0 ? `${total.toLocaleString()}원 주문하기` : '주문하기';
+}
+
+async function placeOrder() {
+  const items = Object.keys(cart).map(name => ({ name, qty: cart[name] }));
+  if (!items.length) { alert('메뉴를 담아주세요.'); return; }
+  const btn = document.getElementById('order-btn');
+  btn.disabled = true; btn.textContent = '결제 중...';
+  const loc = simLoc();
+  try {
+    const resp = await fetch('/api/app_order', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ store_id: currentStore.id, items, lat: loc.lat, lng: loc.lng }),
+    });
+    const r = await resp.json();
+    btn.disabled = false; updateCartBar();
+    const box = document.getElementById('store-result');
+    if (r.ok) {
+      const lines = r.items.map(i => `${i.name} x${i.qty}`).join(', ');
+      box.innerHTML = `<div class="order-result">
+        <div class="big-icon">🎉</div>
+        <div class="rt">주문 완료!</div>
+        <div class="rd">${currentStore.name}<br>${lines}<br><strong>${r.total.toLocaleString()}원</strong> 결제 완료 · ${r.transaction_id}</div>
+        <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
+      </div>`;
+      document.getElementById('store-menu').style.display='none';
+      box.style.display='block';
+    } else if (r.reason === 'location_mismatch') {
+      box.innerHTML = `<div class="order-result">
+        <div class="big-icon">📍</div>
+        <div class="rt">위치가 매장과 달라요</div>
+        <div class="order-fail">${r.message}</div>
+        <div class="rd">폰 위치가 매장 안일 때만 주문·결제가 됩니다.<br>위치를 '🏪 매장 안'으로 바꾸고 다시 시도해보세요.</div>
+        <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
+      </div>`;
+      document.getElementById('store-menu').style.display='none';
+      box.style.display='block';
+    } else {
+      alert(r.message || r.error || '주문에 실패했습니다.');
+    }
+  } catch(e) {
+    btn.disabled=false; updateCartBar();
+    alert('주문 중 오류: ' + e.message);
+  }
+}
+
+function backToMenu() {
+  document.getElementById('store-result').style.display='none';
+  document.getElementById('store-menu').style.display='block';
+}
+
+function switchView(v) {
+  const isStore = v === 'store';
+  document.getElementById('view-store').style.display = isStore ? 'block' : 'none';
+  document.getElementById('view-register').style.display = isStore ? 'none' : 'block';
+  document.getElementById('steps').style.display = isStore ? 'none' : 'flex';
+  document.getElementById('nav-home').classList.toggle('active', isStore);
+  document.getElementById('nav-me').classList.toggle('active', !isStore);
+}
 
 function goStep(n) {
   if (currentStep === 4 && n < 4) return;
@@ -2110,6 +2430,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('app-name').addEventListener('input', e => {
     document.getElementById('card-name-display').textContent = e.target.value ? e.target.value.split('').join(' ') : '홍 길 동';
   });
+  setLoc('in');   // 매장 주문 뷰 위치 배너 초기화
 });
 </script>
 </body>

@@ -98,6 +98,15 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
 
 ---
 
+## 🏪 앱 매장 주문 시나리오 (2026-07-08 추가)
+`/app` 페이지에 매장 입장→메뉴→위치검증 주문 플로우 추가. (하단 탭: 🏠홈=매장주문 / 👤내정보=기존 등록위저드)
+- **위치는 시뮬레이션** (실제 GPS 대신 '🏪매장 안 / 🚶매장 밖' 토글). 실서비스는 GPS로 대체.
+- 흐름: 매장 입장하기 → geofence 통과 시 매장+메뉴 자동 표시 → 담기 → 주문하기 → **폰 위치==매장 위치**일 때만 결제, 아니면 차단.
+- 백엔드: `src/tools/stores.py` (STORES 좌표+haversine geofence), app.py 라우트 `POST /api/store/enter`, `POST /api/app_order`.
+  - 가격은 서버가 실제 메뉴로 재계산(클라 신뢰 X), 결제는 기존 MockPaymentGateway 재사용.
+- 매장 추가/좌표 변경은 `stores.py`의 `STORES`만 수정. JS 시뮬 좌표는 app.py `STORE_LAT/LNG`(stores.py와 동일하게 유지).
+- 테스트 완료: 입장(안→메뉴/밖→차단), 주문(안→결제성공 13500원/밖→위치불일치 차단), /app HTTP 200.
+
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.
   로컬 스택 확정 후 src/engines 추상화 레이어 구현, 각 엔진 단독 테스트 통과.
