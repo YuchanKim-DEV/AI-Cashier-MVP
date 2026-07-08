@@ -21,7 +21,7 @@ import time
 import uuid
 from typing import Callable, Optional, Awaitable
 
-from src.engines import config, stt, tts
+from src.engines import config, intent, stt, tts
 from src.engines.llm import LocalLLM, to_chat_tools
 from src.engines.vad import UtteranceVAD
 from src.tools.handlers import TOOLS
@@ -194,7 +194,12 @@ class LocalVoiceClient:
             if self._cancelled:
                 return
             self._history.append({"role": "user", "content": text})
-            reply = await self._llm_turn()
+            # fast-path: 명확한 주문은 LLM 없이 규칙으로 즉시 처리 (지연↓, 할루시네이션 0)
+            reply = None
+            if config.FAST_INTENT and self._lang != "en":
+                reply = await self._try_fast_path(text)
+            if reply is None:
+                reply = await self._llm_turn()
             if self._cancelled or not reply:
                 return
             await self._speak(reply)
@@ -202,6 +207,44 @@ class LocalVoiceClient:
             print(f"[LocalVoiceClient] 턴 오류: {e}")
         finally:
             self._busy = False
+
+    async def _try_fast_path(self, text: str) -> Optional[str]:
+        """결정적 의도 라우터 — 성공 시 응답 문자열, 파악 불가면 None(LLM 폴백)."""
+        parsed = intent.parse(text)
+        if not parsed:
+            return None
+        kind = parsed["intent"]
+        # 의도 → (tool 이름, args 목록)
+        if kind == "add":
+            calls = [("add_to_cart", {"item_name": n, "quantity": q}) for n, q in parsed["items"]]
+        elif kind == "remove":
+            calls = [("remove_from_cart", {"item_name": n}) for n, _ in parsed["items"]]
+        elif kind == "checkout":
+            calls = [("checkout", {})]
+        elif kind == "select_payment":
+            calls = [("select_payment", {"method": parsed["method"]})]
+        elif kind == "view_cart":
+            calls = [("view_cart", {})]
+        elif kind == "recommend":
+            calls = [("recommend_menu", {"category": parsed.get("category")} if parsed.get("category") else {})]
+        else:
+            return None
+        print(f"[LocalVoiceClient] fast-path: {kind} {calls}")
+        results = []
+        for name, args in calls:
+            call_id = f"fast_{uuid.uuid4().hex[:8]}"
+            self._pending_tool_outputs.pop(call_id, None)
+            if self.on_function_call:
+                # main.py 의 on_function_call 경로 재사용 → select_payment 화자 게이트 유지
+                await self.on_function_call(call_id, name, json.dumps(args, ensure_ascii=False))
+            try:
+                results.append(json.loads(self._pending_tool_outputs.pop(call_id, "{}")))
+            except json.JSONDecodeError:
+                results.append({})
+        reply = intent.response_for(parsed, results)
+        if reply:
+            self._history.append({"role": "assistant", "content": reply})
+        return reply or None
 
     async def _llm_turn(self) -> str:
         """LLM 호출 + tool call 루프. 최종 어시스턴트 텍스트 반환."""

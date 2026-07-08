@@ -157,6 +157,28 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
 ⚠️ 관찰: 3B 모델이 가끔 응답 서두에 외국어 토큰 조각(예: "ặt lost,")을 뱉음 — 동작엔 지장 없음.
 심해지면 _speak 전에 정제 필터 추가 검토.
 
+## ⚡ 4GB 매장 하드웨어 최적화 (2026-07-08)
+**타깃: 매장 키오스크가 RAM 4GB.** 기존 standard 스택은 실측 ~3.5GB(py 982MB + ollama 3b ~2.5GB)로 초과 위험.
+
+### 실측 메모리 (이 M1에서)
+- Python 서버(STT small + TTS MMS + ECAPA): **982MB** (STT small 이 ~850MB 지배적)
+- Ollama ai-cashier(3b, ctx4096): 로드 시 ~2.3-2.7GB
+
+### 조치
+1. **`MEM_PROFILE=low`** (config.py): STT=base(~180MB) + LLM=`ai-cashier-lite`(qwen2.5:1.5b, ctx2048, ~1.2GB)
+   → 총 **~1.6GB**, 4GB 박스 OK. `.env` 에서 STT_MODEL/LLM_MODEL 비우면 프로필 기본값 적용.
+   lite 생성: `ollama create ai-cashier-lite -f models/Modelfile.ai-cashier-lite` (완료됨)
+2. **fast-path 의도 라우터** (`src/engines/intent.py` + local_client `_try_fast_path`):
+   명확한 주문(담기/빼기/결제/수단선택/장바구니/추천)은 **LLM 없이 규칙+퍼지매칭으로 0ms 처리**.
+   - 파서 유닛 20/20 PASS (STT 오타 "지즈버거 세트"→치즈버거 세트 포함)
+   - 통합 7/7 PASS: add 0ms(기존 1~3s), 응답 템플릿 자연스러움, select_payment 는
+     main.py on_function_call 경로 재사용이라 **화자인증 게이트 유지**
+   - 질문/복합 발화("아메리카노 있어요?", "버거만 세트로 바꿔줘")는 None → LLM 폴백 (의도됨)
+   - lite(1.5b) 폴백 품질: 없는 메뉴 정직 거절 확인 ("커피는 없어요! 콜라나 아이스티 어떠세요?")
+   - 끄기: `FAST_INTENT=0`
+3. 4GB 박스 셋업: `.env` 에 `MEM_PROFILE=low` + `ENGINE_MODE=local`, ollama pull qwen2.5:1.5b
+   + ai-cashier-lite 생성 + faster-whisper base 첫 실행 자동 다운로드.
+
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.
   로컬 스택 확정 후 src/engines 추상화 레이어 구현, 각 엔진 단독 테스트 통과.

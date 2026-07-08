@@ -1,0 +1,8 @@
+# 4GB 저사양 매장 하드웨어용 경량 모델 (qwen2.5:1.5b 기반)
+# 생성: ollama create ai-cashier-lite -f models/Modelfile.ai-cashier-lite
+FROM qwen2.5:1.5b
+
+PARAMETER num_ctx 2048
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+PARAMETER repeat_penalty 1.1

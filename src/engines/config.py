@@ -22,11 +22,17 @@ def is_local() -> bool:
     return engine_mode() == "local"
 
 
+# ─── 메모리 프로필 ───────────────────────────────────────────────────────────
+# standard: 8GB+ (개발 머신) — STT small + ai-cashier(3b/ctx4096) ≈ 총 ~3.5GB
+# low:      4GB 매장 하드웨어 — STT base + ai-cashier-lite(1.5b/ctx2048) ≈ 총 ~1.6GB
+MEM_PROFILE = os.getenv("MEM_PROFILE", "standard").strip().lower()
+_LOW = MEM_PROFILE == "low"
+
 # ─── STT (faster-whisper) ────────────────────────────────────────────────────
 # 모델: tiny / base / small / medium / large-v3
-#   M1 8GB 권장: small (한국어 OK, ~1GB, int8)
+#   M1 8GB 권장: small (한국어 OK, ~850MB, int8) / 4GB: base (~180MB)
 #   클라우드/GPU: large-v3
-STT_MODEL       = os.getenv("STT_MODEL", "small")
+STT_MODEL       = os.getenv("STT_MODEL") or ("base" if _LOW else "small")
 STT_DEVICE      = os.getenv("STT_DEVICE", "cpu")        # cpu | cuda
 STT_COMPUTE     = os.getenv("STT_COMPUTE", "int8")      # int8 | int8_float16 | float16
 STT_LANGUAGE    = os.getenv("STT_LANGUAGE", "")         # "" = 자동감지, "ko"/"en" 강제 가능
@@ -37,7 +43,11 @@ STT_LANGUAGE    = os.getenv("STT_LANGUAGE", "")         # "" = 자동감지, "ko
 #   클라우드/GPU: qwen2.5:14b / 32b
 LLM_BASE_URL    = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
 LLM_API_KEY     = os.getenv("LLM_API_KEY", "ollama")    # Ollama 는 아무 값이나 허용
-LLM_MODEL       = os.getenv("LLM_MODEL", "qwen2.5:3b")   # instruct q4_K_M (~1.9GB)
+# ai-cashier(-lite)는 models/Modelfile.* 로 생성한 튜닝 모델 (num_ctx/temp 구움)
+LLM_MODEL       = os.getenv("LLM_MODEL") or ("ai-cashier-lite" if _LOW else "ai-cashier")
+
+# fast-path 의도 라우터: 명확한 주문은 LLM 없이 규칙으로 즉시 처리 (지연↓ 할루시네이션 0)
+FAST_INTENT     = os.getenv("FAST_INTENT", "1").strip() not in ("0", "false", "off")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))   # 낮게 → 할루시네이션 억제
 LLM_MAX_TOKENS  = int(os.getenv("LLM_MAX_TOKENS", "160"))       # 장황함/할루시네이션 억제 (짧게 강제)
 
