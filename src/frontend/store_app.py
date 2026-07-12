@@ -244,6 +244,18 @@ _TEMPLATE = r"""<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- 4. 결제 완료 (풀스크린) -->
+  <div class="scr" id="scr-done" style="align-items:center;justify-content:center;padding:32px;text-align:center;background:var(--bg);">
+    <div style="font-size:4rem;margin-bottom:14px;">🎉</div>
+    <div style="font-size:1.35rem;font-weight:800;color:var(--text);margin-bottom:10px;">결제 완료!</div>
+    <div id="done-detail" style="font-size:.85rem;color:var(--muted);line-height:1.8;margin-bottom:8px;"></div>
+    <div style="background:var(--green-lt);color:var(--green);border-radius:12px;padding:10px 16px;font-size:.78rem;font-weight:700;margin-bottom:24px;">
+      💳 등록된 앱카드로 결제되었어요 · 음식이 준비되면 알려드릴게요!
+    </div>
+    <button class="btn-pay" style="max-width:280px;" onclick="goMenuFromDone()">🍔 메뉴로 돌아가기</button>
+    <button class="btn-sub" style="max-width:280px;" onclick="location.href='/app'">🏠 홈으로 (시나리오 선택)</button>
+  </div>
+
   <!-- 하단 카트 바 -->
   <div class="cart-bar" id="cart-bar" onclick="openSheet()">
     <div class="cart-bar-info">상품 <b id="cb-count">0</b>개 · <b id="cb-total">0원</b></div>
@@ -379,7 +391,10 @@ function startSSE(){
     if (st.screen !== _prevScreen) {
       if (st.screen === 'checkout' && mode==='voice') { openSheet(); }
       if (st.screen === 'payment_processing') { showPayingSheet(); }
-      if (st.screen === 'complete') { showResultSheet(true, st.transaction_id || ''); }
+      if (st.screen === 'complete') {
+        const names = Object.keys(cart).map(n=>`${n} x${cart[n].qty}`).join(', ');
+        showDoneScreen(`${STORE.name}<br>${names}<br><b>${cartTotal.toLocaleString()}원</b>${st.transaction_id?' · '+st.transaction_id:''}`);
+      }
       _prevScreen = st.screen;
     }
   };
@@ -487,7 +502,10 @@ async function payNow(){
     // 진행바 잠깐 채우고 결과 표시
     setTimeout(() => {
       paying = false;
-      if (r.ok) { showResultSheet(true, r.transaction_id); post('/action/reset', {}); }
+      if (r.ok) {
+        const lines = r.items.map(i=>`${i.name} x${i.qty}`).join(', ');
+        showDoneScreen(`${STORE.name}<br>${lines}<br><b>${r.total.toLocaleString()}원</b> · ${r.transaction_id}`);
+      }
       else if (r.reason === 'location_mismatch') showResultSheet(false, r.message || '매장 20m 이내에서만 결제할 수 있어요.');
       else showResultSheet(false, r.message || r.error || '결제에 실패했어요.');
     }, 1200);
@@ -506,13 +524,7 @@ function showPayingSheet(){
 }
 function showResultSheet(ok, detail){
   paying = false;
-  $('sheet-body').innerHTML = ok ? `
-    <div class="result-wrap">
-      <div class="result-icon">🎉</div>
-      <div class="result-title">결제 완료!</div>
-      <div class="result-desc">${STORE.name}<br>등록된 앱카드로 결제되었어요${detail?'<br>'+detail:''}<br>음식이 준비되면 알려드릴게요!</div>
-      <button class="btn-pay" onclick="location.reload()">처음으로</button>
-    </div>` : `
+  $('sheet-body').innerHTML = `
     <div class="result-wrap">
       <div class="result-icon">📍</div>
       <div class="result-title">결제할 수 없어요</div>
@@ -521,6 +533,23 @@ function showResultSheet(ok, detail){
       <button class="btn-sub" onclick="closeSheet()">돌아가기</button>
     </div>`;
   $('phone').classList.add('sheet-open');
+}
+
+// ── 결제 완료 (풀스크린) ──
+function showDoneScreen(detailHtml){
+  paying = false;
+  $('phone').classList.remove('sheet-open');   // 시트 닫기
+  $('cart-bar').style.display = 'none';
+  $('done-detail').innerHTML = detailHtml;
+  show('scr-done');
+}
+async function goMenuFromDone(){
+  await post('/action/reset', {});             // 서버 카트/상태 초기화
+  cart = {}; cartTotal = 0; _prevScreen = '';
+  renderControls(); updateCartBar();
+  show('scr-store');
+  $('cart-bar').style.display = 'flex';
+  if (mode === 'voice') await post('/action/start', {});   // 음성 모드면 재시작 (인사 + 재개)
 }
 </script>
 </body>

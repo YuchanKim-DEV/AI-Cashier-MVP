@@ -211,6 +211,9 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
 - **결제 화면 음성인식 중단** (앱): checkout 진입 시 서버(mic_to_realtime 채널 게이트)+클라(micMuted
   전송 차단, "🔇 일시중지" 표시) 이중 차단. 바텀시트 닫기(계속 담기)→ `back_to_menu` 액션
   (screen=ordering, 카트 유지) → 음성인식 재개. 테스트 4/4 PASS.
+- **결제 완료 풀스크린** (`scr-done`): 수동/음성 결제 성공 시 주문요약+트랜잭션ID 표시.
+  버튼: [메뉴로 돌아가기]=reset+카트 비움+(음성모드면 start 재시작) / [홈으로]=/app 시나리오 선택.
+  구 "처음으로"(리로드) 버튼 제거.
 
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.
