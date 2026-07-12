@@ -3,7 +3,8 @@
 
 시나리오 (URL로 분리):
   /app/in  — 매장 20m 이내: 앱 켜짐(스플래시) → 위치 감지 → 매장 메뉴 자동 진입 → 주문/결제 가능
-  /app/out — 매장 밖: 위치 감지 → "주변 매장 없음" → 메뉴 둘러보기는 가능, 결제는 차단
+  /app/out — 매장 안에서 연결 후 이탈: 동일하게 메뉴 진입 → 5초 뒤 '매장 밖'으로 전환
+             → 결제 시도 시 매장 20m 이내가 아니라 결제 불가
 
 주문 방식 (우측 상단 토글):
   👆 수동 — 카테고리 가로 슬라이드, + / − 로 담기, 하단 바(개수·금액) → 바텀시트 상세/결제
@@ -87,10 +88,6 @@ _TEMPLATE = r"""<!DOCTYPE html>
     padding:10px 18px; font-size:.85rem; font-weight:700; display:none; animation:fadeup .4s ease both; }
 
   /* ── 매장 없음 (out) ── */
-  #scr-nostore { align-items:center; justify-content:center; padding:32px; text-align:center; }
-  .nostore-icon { font-size:3.4rem; margin-bottom:14px; }
-  .nostore-title { font-size:1.15rem; font-weight:800; color:var(--text); margin-bottom:8px; }
-  .nostore-desc { font-size:.83rem; color:var(--muted); line-height:1.7; margin-bottom:22px; }
 
   /* ── 매장 화면 ── */
   #scr-store { background:var(--bg); }
@@ -201,16 +198,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
     <div class="found-banner" id="found-banner">✅ 오투오버거 강남점 · 20m 이내!</div>
   </div>
 
-  <!-- 2-b. 매장 없음 (out 시나리오) -->
-  <div class="scr" id="scr-nostore">
-    <div class="nostore-icon">🚶</div>
-    <div class="nostore-title">주변에 매장이 없어요</div>
-    <div class="nostore-desc">20m 이내에 이용 가능한 O2O Burger 매장이 없습니다.<br>메뉴는 둘러볼 수 있지만,<br><b>주문·결제는 매장 안에서만 가능</b>해요.</div>
-    <button class="cart-bar-btn" onclick="enterStore()">메뉴 둘러보기</button>
-  </div>
-
   <!-- 3. 매장 + 메뉴 -->
   <div class="scr" id="scr-store">
+    <!-- 매장 이탈 알림 스트립 (out 시나리오: 5초 뒤 표시) -->
+    <div id="left-strip" style="display:none;background:var(--red);color:#fff;padding:9px 16px;font-size:.76rem;font-weight:700;text-align:center;flex-shrink:0;animation:fadeup .4s ease both;">
+      🚶 매장을 벗어났습니다 — 매장 20m 이내가 아니면 결제할 수 없어요
+    </div>
     <div class="store-head">
       <div class="store-head-top">
         <div>
@@ -275,10 +268,12 @@ const SESSION_ID = '__SESSION_ID__';
 const SCENARIO   = '__SCENARIO__';            // 'in' | 'out'
 const MENU       = __MENU_JSON__;
 const STORE      = __STORE_JSON__;
-const IN_STORE   = SCENARIO === 'in';
-// 시뮬레이션 좌표: in=매장 좌표(20m 이내), out=약 1.4km 밖
-const MY_LOC = IN_STORE ? { lat: STORE.lat, lng: STORE.lng }
-                        : { lat: STORE.lat + 0.01, lng: STORE.lng + 0.01 };
+// 두 시나리오 모두 '매장 안'에서 시작. out 은 메뉴 진입 5초 뒤 매장을 벗어난다.
+let insideNow = true;
+function myLoc(){
+  return insideNow ? { lat: STORE.lat, lng: STORE.lng }               // 매장 안 (20m 이내)
+                   : { lat: STORE.lat + 0.01, lng: STORE.lng + 0.01 }; // 매장 밖 (~1.4km)
+}
 
 let mode = 'manual';               // 'manual' | 'voice'
 let cart = {};                     // 서버 카트 미러 { name: {qty, price} }
@@ -297,30 +292,37 @@ async function post(path, data){
 
 // ── 시나리오 시작: 스플래시 → 위치감지 → 분기 ──
 window.addEventListener('DOMContentLoaded', () => {
-  post('/action/set_location', { at_store: IN_STORE });   // 음성 결제 게이트용
+  post('/action/set_location', { at_store: true });   // 시작은 항상 매장 안
   setTimeout(() => {
     show('scr-locating');
     setTimeout(() => {
-      if (IN_STORE) {
-        $('found-banner').style.display = 'block';
-        setTimeout(enterStore, 900);                       // 자동으로 매장 메뉴 진입
-      } else {
-        show('scr-nostore');
-      }
+      $('found-banner').style.display = 'block';
+      setTimeout(enterStore, 900);                    // 자동으로 매장 메뉴 진입
     }, 1600);
   }, 1900);
 });
 
 function enterStore(){
   $('st-name').textContent = STORE.name;
-  $('st-addr').textContent = STORE.address + (IN_STORE ? ' · 약 8m' : ' · 약 1.4km');
-  const badge = $('loc-badge');
-  if (!IN_STORE) { badge.textContent = '🔴 매장 밖'; badge.classList.add('out'); }
+  $('st-addr').textContent = STORE.address + ' · 약 8m';
   renderMenu();
   show('scr-store');
   $('cart-bar').style.display = 'flex';
   updateCartBar();
   startSSE();
+  // out 시나리오: 메뉴 진입 5초 뒤 매장을 벗어남
+  if (SCENARIO === 'out') setTimeout(leaveStore, 5000);
+}
+
+function leaveStore(){
+  insideNow = false;
+  post('/action/set_location', { at_store: false });   // 음성 결제 게이트도 매장 밖으로
+  const badge = $('loc-badge');
+  badge.textContent = '🔴 매장 밖'; badge.classList.add('out');
+  $('st-addr').textContent = STORE.address + ' · 약 1.4km';
+  $('left-strip').style.display = 'block';
+  const phone = $('phone');
+  if (phone.classList.contains('sheet-open') && !paying) renderSheetCart();  // 시트 열려있으면 갱신
 }
 
 // ── 수동 주문: 카테고리 슬라이드 ──
@@ -482,7 +484,7 @@ function renderSheetCart(){
     <div class="sheet-title">주문 상세</div>
     ${rows}
     <div class="s-total"><span>총 결제금액</span><span>${cartTotal.toLocaleString()}원</span></div>
-    <div class="pay-note">💳 <b>등록된 앱카드</b>로 결제됩니다 (시뮬레이션)${IN_STORE?'':' · 📍 현재 매장 밖'}</div>
+    <div class="pay-note">💳 <b>등록된 앱카드</b>로 결제됩니다 (시뮬레이션)${insideNow?'':' · 🔴 현재 매장 밖 — 결제 불가'}</div>
     <button class="btn-pay" onclick="payNow()">앱카드로 ${cartTotal.toLocaleString()}원 결제</button>
     <button class="btn-sub" onclick="closeSheet()">계속 담기</button>`;
 }
@@ -497,7 +499,7 @@ async function payNow(){
   try {
     const r = await (await fetch('/api/app_order', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ store_id: STORE.id, items, lat: MY_LOC.lat, lng: MY_LOC.lng }),
+      body: JSON.stringify({ store_id: STORE.id, items, ...myLoc() }),   // 결제 순간의 위치로 검증
     })).json();
     // 진행바 잠깐 채우고 결과 표시
     setTimeout(() => {
@@ -506,7 +508,7 @@ async function payNow(){
         const lines = r.items.map(i=>`${i.name} x${i.qty}`).join(', ');
         showDoneScreen(`${STORE.name}<br>${lines}<br><b>${r.total.toLocaleString()}원</b> · ${r.transaction_id}`);
       }
-      else if (r.reason === 'location_mismatch') showResultSheet(false, r.message || '매장 20m 이내에서만 결제할 수 있어요.');
+      else if (r.reason === 'location_mismatch') showResultSheet(false, '매장과 20m 이내가 아니어서 결제가 불가능해요.<br>' + (r.message || ''));
       else showResultSheet(false, r.message || r.error || '결제에 실패했어요.');
     }, 1200);
   } catch(e){ paying=false; showResultSheet(false, e.message); }
@@ -529,7 +531,7 @@ function showResultSheet(ok, detail){
       <div class="result-icon">📍</div>
       <div class="result-title">결제할 수 없어요</div>
       <div class="result-fail">${detail}</div>
-      <div class="result-desc">매장 20m 이내에서만 주문·결제가 가능해요.<br>매장 안 시나리오: <b>/app/in</b></div>
+      <div class="result-desc">주문·결제는 매장 20m 이내에서만 가능해요.<br>매장으로 다시 들어가시면 바로 결제할 수 있어요!</div>
       <button class="btn-sub" onclick="closeSheet()">돌아가기</button>
     </div>`;
   $('phone').classList.add('sheet-open');

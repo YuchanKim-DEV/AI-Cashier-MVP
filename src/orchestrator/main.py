@@ -406,8 +406,8 @@ async def run_session(session_id: str):
             # 위치 시뮬레이션: 매장 안이면 결제 진행, 매장 밖이면 차단 (둘 다 시연 가능)
             if not session.at_store:
                 await client.send_alert(
-                    f"앗, {name}님이 현재 오투오버거 매장에 위치하지 않아 앱카드 결제가 불가능해요. "
-                    "매장 안에서 다시 시도해 주세요."
+                    f"앗, {name}님이 지금 매장 20미터 이내에 계시지 않아 결제가 불가능해요. "
+                    "매장으로 돌아오시면 바로 결제 도와드릴게요."
                 )
                 return
             # 매장 안 — 앱카드 결제 진행
