@@ -507,6 +507,14 @@ async def run_session(session_id: str):
                         "screen": "ordering",
                     })
 
+            elif atype == "remove_menu":
+                # 앱 수동 주문 − 버튼: 수량 1 감소
+                result = cart.decrement_item(action.get("name", ""))
+                _push({
+                    "cart_items": result["cart"]["items"],
+                    "cart_total": result["cart"]["total"],
+                })
+
             elif atype == "identify":
                 name  = action.get("name", "").strip()
                 phone = action.get("phone", "").strip()

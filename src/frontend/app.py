@@ -240,6 +240,14 @@ async def action_add_menu(request: Request):
     return {"ok": True}
 
 
+@app.post("/action/remove_menu")
+async def action_remove_menu(request: Request):
+    """앱 수동 주문 − 버튼: 수량 1 감소."""
+    body = await request.json()
+    await _enqueue(_get_sid(request), {"type": "remove_menu", "name": body.get("name", "")})
+    return {"ok": True}
+
+
 @app.post("/action/start")
 async def action_start(request: Request):
     await _enqueue(_get_sid(request), {"type": "start"})
@@ -393,6 +401,24 @@ async def action_app_payment_confirm(request: Request):
 @app.get("/app", response_class=HTMLResponse)
 async def app_demo():
     return HTMLResponse(content=_build_app_html())
+
+
+@app.get("/app/in", response_class=HTMLResponse)
+async def app_store_in():
+    """매장 안 시나리오: 스플래시 → 20m 감지 → 메뉴 자동 진입 → 주문/결제 가능."""
+    from src.frontend.store_app import build_store_app_html
+    session_id = str(uuid.uuid4())
+    create_session(session_id)          # 음성 주문 모드용 세션 워커
+    return HTMLResponse(content=build_store_app_html("in", session_id))
+
+
+@app.get("/app/out", response_class=HTMLResponse)
+async def app_store_out():
+    """매장 밖 시나리오: 주변 매장 없음 → 둘러보기만 가능, 결제 차단."""
+    from src.frontend.store_app import build_store_app_html
+    session_id = str(uuid.uuid4())
+    create_session(session_id)
+    return HTMLResponse(content=build_store_app_html("out", session_id))
 
 
 # ─── HTML ──────────────────────────────────────────────────────────────────────

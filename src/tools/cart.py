@@ -38,6 +38,16 @@ class CartManager:
         self.items.append(new_item)
         return {"success": True, "action": "added", "item": new_item, "cart": self.to_dict()}
 
+    def decrement_item(self, item_name: str) -> dict:
+        """수량 1 감소 (0이 되면 제거) — 앱 수동 주문의 − 버튼용."""
+        for i, item in enumerate(self.items):
+            if item_name in item["name"] or item["name"] in item_name:
+                item["quantity"] -= 1
+                if item["quantity"] <= 0:
+                    self.items.pop(i)
+                return {"success": True, "cart": self.to_dict()}
+        return {"success": False, "error": f"장바구니에 '{item_name}'이(가) 없습니다.", "cart": self.to_dict()}
+
     def remove_item(self, item_name: str) -> dict:
         """장바구니에서 메뉴 제거."""
         for i, item in enumerate(self.items):
