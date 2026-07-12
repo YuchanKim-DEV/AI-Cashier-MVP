@@ -2014,65 +2014,21 @@ def _build_app_html() -> str:
     <div class="step" id="step-4" onclick="goStep(4)"><div class="step-dot">✓</div><div class="step-label">완료</div></div>
   </div>
   <div class="app-content">
-    <!-- ══ 매장 주문 뷰 (홈) ══ -->
+    <!-- ══ 홈 (시나리오 선택) ══ -->
     <div id="view-store">
-      <!-- 1) 매장 감지 -->
-      <div id="store-locating">
-        <div class="panel-title">매장 주문</div>
-        <div class="panel-sub">앱을 켜고 매장에 입장하면 자동으로 매장 메뉴가 열려요.</div>
-        <div class="loc-banner">
-          <div class="loc-dot" id="loc-dot"></div>
-          <div class="loc-text" id="loc-text">현재 위치를 확인하는 중...</div>
-        </div>
-        <div class="input-label" style="margin-bottom:8px">📍 내 위치 (시뮬레이션)</div>
-        <div class="loc-toggle">
-          <div class="loc-opt active" id="loc-in" onclick="setLoc('in')">🏪 매장 안</div>
-          <div class="loc-opt" id="loc-out" onclick="setLoc('out')">🚶 매장 밖</div>
-        </div>
-        <div class="info-box">💡 실제 서비스에선 GPS로 자동 판별됩니다. 지금은 위치를 수동으로 바꿔 시나리오를 확인할 수 있어요.</div>
-        <button class="btn-app btn-primary-app" onclick="enterStore()">🏪 매장 입장하기</button>
+      <div class="panel-title">매장 주문 시나리오</div>
+      <div class="panel-sub">앱을 켜고 매장에 들어가는 상황을 시뮬레이션해요.<br>위치에 따라 시나리오가 달라집니다 (20m 기준).</div>
+      <div class="store-card" style="cursor:pointer" onclick="location.href='/app/in'">
+        <div class="store-name">🏪 매장 안 시나리오</div>
+        <div class="store-addr">앱 켜기 → 20m 이내 매장 감지 → 메뉴 자동 진입 → 음성/수동 주문 → 앱카드 결제 성공</div>
+        <span class="store-open">▶ /app/in 열기</span>
       </div>
-
-      <!-- 2) 매장 메뉴 + 장바구니 -->
-      <div id="store-menu" style="display:none">
-        <div class="store-card">
-          <div class="store-name" id="sc-name">오투오버거</div>
-          <div class="store-addr" id="sc-addr"></div>
-          <span class="store-open" id="sc-open">🟢 영업 중 · 매장 안</span>
-        </div>
-        <div class="loc-toggle">
-          <div class="loc-opt active" id="loc-in2" onclick="setLoc('in')">🏪 매장 안</div>
-          <div class="loc-opt" id="loc-out2" onclick="setLoc('out')">🚶 매장 밖</div>
-        </div>
-        <div id="menu-list"></div>
-        <div class="cart-bar">
-          <div class="cart-summary">
-            <span class="cart-total-label">총 <span id="cart-count">0</span>개</span>
-            <span class="cart-total-amt" id="cart-total">0원</span>
-          </div>
-          <button class="btn-app btn-primary-app" id="order-btn" onclick="placeOrder()">주문하기</button>
-        </div>
+      <div class="store-card" style="cursor:pointer;background:linear-gradient(135deg,#4E5968,#191F28)" onclick="location.href='/app/out'">
+        <div class="store-name">🚶 매장 밖 시나리오</div>
+        <div class="store-addr">앱 켜기 → 주변 매장 없음 → 메뉴 둘러보기만 가능 → 결제 시도 시 20m 밖이라 차단</div>
+        <span class="store-open">▶ /app/out 열기</span>
       </div>
-
-      <!-- 3) 결제 진행 중 (매장 이탈 감지) -->
-      <div id="store-paying" style="display:none">
-        <div class="panel-title">결제 진행 중</div>
-        <div class="panel-sub">결제가 완료될 때까지 매장 안에 계셔야 해요.<br>매장을 벗어나면 결제가 자동 취소됩니다.</div>
-        <div class="loc-banner">
-          <div class="loc-dot inside" id="pay-dot"></div>
-          <div class="loc-text" id="pay-text">📍 매장 안 · 결제 처리 중...</div>
-        </div>
-        <div class="record-bar" style="width:100%"><div class="record-fill" id="pay-fill" style="width:0%"></div></div>
-        <div class="input-label" style="margin:16px 0 8px">📍 내 위치 (시뮬레이션)</div>
-        <div class="loc-toggle">
-          <div class="loc-opt active" id="loc-in3" onclick="setLoc('in')">🏪 매장 안</div>
-          <div class="loc-opt" id="loc-out3" onclick="setLoc('out')">🚶 매장 밖</div>
-        </div>
-        <div class="info-box">💡 결제 중 '🚶 매장 밖'으로 바꿔보세요 — 결제가 취소됩니다.</div>
-      </div>
-
-      <!-- 4) 주문 결과 -->
-      <div id="store-result" style="display:none"></div>
+      <div class="info-box">💡 목소리 등록은 <b>내 정보</b> 탭에서! 등록하면 키오스크·앱 음성 주문에서 자동으로 알아봐요.</div>
     </div>
 
     <!-- ══ 등록 뷰 (내 정보) ══ -->
@@ -2184,208 +2140,6 @@ let _mediaRecorder = null;
 let _recChunks = [];
 let _recStream = null;
 let _recordedAudioB64 = null;
-
-// ══ 매장 주문 시나리오 ══
-// 시뮬레이션 좌표 (서버 stores.py 의 o2o-gangnam 과 동일)
-const STORE_LAT = 37.498095, STORE_LNG = 127.027610;
-let locMode = 'in';                 // 'in'(매장 안) | 'out'(매장 밖)
-let currentStore = null;
-let menuData = null;
-let cart = {};                      // { 메뉴명: 수량 }
-let priceMap = {};                  // { 메뉴명: 가격 }
-let _paying = false;                // 결제 진행 중 여부
-let _payTimer = null;
-
-function simLoc() {
-  // 매장 안 = 매장 좌표, 매장 밖 = 약 1.1km 떨어진 좌표
-  return locMode === 'in'
-    ? { lat: STORE_LAT, lng: STORE_LNG }
-    : { lat: STORE_LAT + 0.01, lng: STORE_LNG + 0.01 };
-}
-
-function setLoc(mode) {
-  locMode = mode;
-  ['loc-in','loc-in2','loc-in3'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='in'); });
-  ['loc-out','loc-out2','loc-out3'].forEach(id => { const e=document.getElementById(id); if(e) e.classList.toggle('active', mode==='out'); });
-  const dot = document.getElementById('loc-dot'), txt = document.getElementById('loc-text');
-  if (dot && txt) {
-    dot.className = 'loc-dot ' + (mode==='in' ? 'inside' : 'outside');
-    txt.textContent = mode==='in' ? '📍 매장 반경 안에 있습니다.' : '📍 매장에서 떨어져 있습니다.';
-  }
-  const open = document.getElementById('sc-open');
-  if (open) {
-    open.textContent = mode==='in' ? '🟢 영업 중 · 매장 안' : '🔴 매장 밖 (주문 불가)';
-    open.style.background = mode==='in' ? 'rgba(255,255,255,.2)' : 'rgba(240,68,82,.9)';
-  }
-  // 결제 진행 중 매장을 벗어나면 즉시 결제 취소
-  const pdot = document.getElementById('pay-dot'), ptxt = document.getElementById('pay-text');
-  if (pdot && ptxt) {
-    pdot.className = 'loc-dot ' + (mode==='in' ? 'inside' : 'outside');
-    ptxt.textContent = mode==='in' ? '📍 매장 안 · 결제 처리 중...' : '⚠️ 매장을 벗어났습니다!';
-  }
-  if (_paying && mode === 'out') abortPayment();
-}
-
-async function enterStore() {
-  const loc = simLoc();
-  try {
-    const resp = await fetch('/api/store/enter', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(loc),
-    });
-    const r = await resp.json();
-    if (!r.ok) {
-      const dot=document.getElementById('loc-dot'), txt=document.getElementById('loc-text');
-      dot.className='loc-dot outside'; txt.textContent = r.message || '주변 매장이 없습니다.';
-      return;
-    }
-    currentStore = r.store; menuData = r.menu; cart = {};
-    document.getElementById('sc-name').textContent = r.store.name;
-    document.getElementById('sc-addr').textContent = r.store.address + ' · 약 ' + Math.round(r.store.distance_m) + 'm';
-    renderMenu();
-    updateCartBar();
-    document.getElementById('store-locating').style.display='none';
-    document.getElementById('store-result').style.display='none';
-    document.getElementById('store-menu').style.display='block';
-    setLoc(locMode);
-  } catch(e) { alert('매장 입장 중 오류: ' + e.message); }
-}
-
-function renderMenu() {
-  priceMap = {};
-  let html = '';
-  for (const cat in menuData) {
-    html += `<div class="menu-cat">${cat}</div>`;
-    for (const it of menuData[cat]) {
-      priceMap[it.name] = it.price;
-      html += `<div class="menu-item" id="mi-${it.id}">
-        <div class="menu-item-info">
-          <div class="menu-item-name">${it.name}</div>
-          <div class="menu-item-price">${it.price.toLocaleString()}원${it.includes ? ' · '+it.includes : ''}</div>
-        </div>
-        <div id="ctrl-${it.id}">
-          <button class="menu-add" onclick="addItem('${it.name}','${it.id}')">+</button>
-        </div>
-      </div>`;
-    }
-  }
-  document.getElementById('menu-list').innerHTML = html;
-}
-
-function findId(name) {
-  for (const cat in menuData) for (const it of menuData[cat]) if (it.name===name) return it.id;
-  return null;
-}
-function renderCtrl(name) {
-  const id = findId(name); if(!id) return;
-  const ctrl = document.getElementById('ctrl-'+id); if(!ctrl) return;
-  const q = cart[name] || 0;
-  ctrl.innerHTML = q > 0
-    ? `<div class="qty-ctrl">
-         <button class="qty-btn" onclick="decItem('${name}')">−</button>
-         <span class="qty-num">${q}</span>
-         <button class="qty-btn" onclick="addItem('${name}','${id}')">+</button>
-       </div>`
-    : `<button class="menu-add" onclick="addItem('${name}','${id}')">+</button>`;
-}
-function addItem(name) { cart[name]=(cart[name]||0)+1; renderCtrl(name); updateCartBar(); }
-function decItem(name) { cart[name]=(cart[name]||0)-1; if(cart[name]<=0) delete cart[name]; renderCtrl(name); updateCartBar(); }
-
-function updateCartBar() {
-  let count=0, total=0;
-  for (const name in cart) { count += cart[name]; total += (priceMap[name]||0)*cart[name]; }
-  document.getElementById('cart-count').textContent = count;
-  document.getElementById('cart-total').textContent = total.toLocaleString()+'원';
-  document.getElementById('order-btn').textContent = count>0 ? `${total.toLocaleString()}원 주문하기` : '주문하기';
-}
-
-function placeOrder() {
-  const items = Object.keys(cart).map(name => ({ name, qty: cart[name] }));
-  if (!items.length) { alert('메뉴를 담아주세요.'); return; }
-  if (locMode === 'out') {
-    showFail('📍', '매장 밖이에요', '매장 안에서만 주문·결제가 됩니다.<br>위치를 \'🏪 매장 안\'으로 바꿔주세요.');
-    return;
-  }
-  // 결제 진행 화면으로 전환 (이 동안 매장을 벗어나면 취소됨)
-  _paying = true;
-  document.getElementById('store-menu').style.display='none';
-  document.getElementById('store-result').style.display='none';
-  document.getElementById('store-paying').style.display='block';
-  setLoc(locMode);
-  let progress = 0;
-  document.getElementById('pay-fill').style.width = '0%';
-  _payTimer = setInterval(() => {
-    if (!_paying) return;
-    progress += 4;
-    document.getElementById('pay-fill').style.width = Math.min(progress,100) + '%';
-    if (progress >= 100) { clearInterval(_payTimer); finalizePayment(); }
-  }, 120);   // 약 3초
-}
-
-function abortPayment() {
-  _paying = false;
-  if (_payTimer) clearInterval(_payTimer);
-  document.getElementById('store-paying').style.display='none';
-  showFail('🚶', '결제가 취소됐어요',
-    '결제 도중 <strong>매장을 벗어나</strong> 결제가 자동 취소됐습니다.<br>매장 안으로 돌아와 다시 시도해주세요.');
-}
-
-async function finalizePayment() {
-  const items = Object.keys(cart).map(name => ({ name, qty: cart[name] }));
-  const loc = simLoc();   // 결제 확정 순간의 위치로 서버가 최종 검증
-  try {
-    const resp = await fetch('/api/app_order', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ store_id: currentStore.id, items, lat: loc.lat, lng: loc.lng }),
-    });
-    const r = await resp.json();
-    _paying = false;
-    document.getElementById('store-paying').style.display='none';
-    if (r.ok) {
-      const lines = r.items.map(i => `${i.name} x${i.qty}`).join(', ');
-      showSuccess(`${currentStore.name}<br>${lines}<br><strong>${r.total.toLocaleString()}원</strong> 결제 완료 · ${r.transaction_id}`);
-      cart = {}; updateCartBar();
-    } else if (r.reason === 'location_mismatch') {
-      showFail('🚶', '결제가 취소됐어요',
-        '결제 도중 <strong>매장을 벗어나</strong> 결제가 취소됐습니다.<br>' + (r.message || ''));
-    } else {
-      showFail('⚠️', '결제 실패', r.message || r.error || '다시 시도해주세요.');
-    }
-  } catch(e) {
-    _paying = false;
-    document.getElementById('store-paying').style.display='none';
-    showFail('⚠️', '오류', e.message);
-  }
-}
-
-function showSuccess(desc) {
-  const box = document.getElementById('store-result');
-  box.innerHTML = `<div class="order-result">
-    <div class="big-icon">🎉</div>
-    <div class="rt">주문 완료!</div>
-    <div class="rd">${desc}</div>
-    <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
-  </div>`;
-  box.style.display='block';
-}
-function showFail(icon, title, desc) {
-  const box = document.getElementById('store-result');
-  box.innerHTML = `<div class="order-result">
-    <div class="big-icon">${icon}</div>
-    <div class="rt">${title}</div>
-    <div class="order-fail">${desc}</div>
-    <button class="btn-app btn-primary-app" onclick="backToMenu()">메뉴로 돌아가기</button>
-  </div>`;
-  document.getElementById('store-menu').style.display='none';
-  box.style.display='block';
-}
-
-function backToMenu() {
-  document.getElementById('store-result').style.display='none';
-  document.getElementById('store-paying').style.display='none';
-  document.getElementById('store-menu').style.display='block';
-  setLoc(locMode);
-}
 
 function switchView(v) {
   const isStore = v === 'store';
@@ -2548,7 +2302,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('app-name').addEventListener('input', e => {
     document.getElementById('card-name-display').textContent = e.target.value ? e.target.value.split('').join(' ') : '홍 길 동';
   });
-  setLoc('in');   // 매장 주문 뷰 위치 배너 초기화
 });
 </script>
 </body>
