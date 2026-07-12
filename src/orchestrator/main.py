@@ -550,6 +550,11 @@ async def run_session(session_id: str):
                 session.failed_verifications = 0
                 _push({"screen": "ordering", "speaker_verified": None})
 
+            elif atype == "back_to_menu":
+                # 앱: 결제 시트 닫고 메뉴로 복귀 (카트 유지) → 음성인식 재개
+                if session.screen in ("checkout", "payment_processing"):
+                    _push({"screen": "ordering"})
+
             elif atype == "set_location":
                 # 앱카드 위치 시뮬 토글 (매장 안/밖)
                 session.at_store = bool(action.get("at_store", True))
@@ -591,6 +596,9 @@ async def run_session(session_id: str):
         while True:
             chunk = await audio_queue.get()
             if session.screen in _MUTE_SCREENS:
+                continue
+            # 앱 채널: 결제 화면부터 음성인식 중단 (메뉴로 돌아와야 재개)
+            if channel == "app" and session.screen == "checkout":
                 continue
             if not _ai_speaking:
                 # 침묵 제외 — VAD가 발화 감지할 때만 버퍼에 수집 (임베딩 품질 향상)

@@ -273,6 +273,7 @@ let cart = {};                     // 서버 카트 미러 { name: {qty, price} 
 let cartTotal = 0;
 let voiceStarted = false;
 let paying = false;
+let micMuted = false;              // 결제 화면(checkout~)에서 음성인식 중단
 
 // ── 유틸 ──
 function $(id){ return document.getElementById(id); }
@@ -360,11 +361,18 @@ function startSSE(){
     (st.cart_items||[]).forEach(i => cart[i.name] = { qty:i.quantity, price:i.price });
     renderControls(); updateCartBar();
     if ($('sheet').classList ? document.querySelector('.phone').classList.contains('sheet-open') && !paying : false) renderSheetCart();
+    // 결제 화면부터 음성인식 중단 — 메뉴로 돌아와야 재개
+    micMuted = ['checkout','payment_processing','complete','card_insert'].includes(st.screen);
     // 음성 상태
     const dot=$('v-dot'), vt=$('v-text');
     if (dot) {
-      dot.className = 'v-dot ' + (st.conversation==='listening'?'listening':st.conversation==='processing'?'processing':'');
-      vt.textContent = {listening:'듣고 있어요 — 말씀하세요', processing:'생각 중...', idle:'대기 중 — 말씀하세요'}[st.conversation] || '대기 중';
+      if (micMuted) {
+        dot.className = 'v-dot';
+        vt.textContent = '🔇 결제 중 — 음성인식 일시중지 (메뉴로 돌아가면 재개)';
+      } else {
+        dot.className = 'v-dot ' + (st.conversation==='listening'?'listening':st.conversation==='processing'?'processing':'');
+        vt.textContent = {listening:'듣고 있어요 — 말씀하세요', processing:'생각 중...', idle:'대기 중 — 말씀하세요'}[st.conversation] || '대기 중';
+      }
     }
     renderChat(st.conversation_log||[]);
     // 음성 결제 흐름 화면 반영
@@ -411,7 +419,7 @@ async function startMic(){
     await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
     const node = new AudioWorkletNode(ctx,'p');
     node.port.onmessage = ({data:f32}) => {
-      if (!_audioWs || _audioWs.readyState!==1) return;
+      if (!_audioWs || _audioWs.readyState!==1 || micMuted) return;   // 결제 화면 = 마이크 차단
       const out = new Int16Array(f32.length>>1);
       for (let i=0;i<out.length;i++){ const s=Math.max(-1,Math.min(1,(f32[i*2]+f32[i*2+1])*.5)); out[i]=s<0?s*0x8000:s*0x7FFF; }
       _audioWs.send(out.buffer);
@@ -439,7 +447,11 @@ function stopVoiceAudio(){ if (_audioCtx){ _audioCtx.close().catch(()=>{}); _aud
 
 // ── 바텀시트 (상세 + 결제) ──
 function openSheet(){ renderSheetCart(); $('phone').classList.add('sheet-open'); }
-function closeSheet(){ if (paying) return; $('phone').classList.remove('sheet-open'); }
+function closeSheet(){
+  if (paying) return;
+  $('phone').classList.remove('sheet-open');
+  post('/action/back_to_menu', {});   // 메뉴 복귀 → 음성인식 재개
+}
 function renderSheetCart(){
   const names = Object.keys(cart);
   if (!names.length) {

@@ -215,6 +215,13 @@ async def action_retry(request: Request):
     return {"ok": True}
 
 
+@app.post("/action/back_to_menu")
+async def action_back_to_menu(request: Request):
+    """앱: 결제 시트 닫고 메뉴 복귀 (음성인식 재개)."""
+    await _enqueue(_get_sid(request), {"type": "back_to_menu"})
+    return {"ok": True}
+
+
 @app.post("/action/set_location")
 async def action_set_location(request: Request):
     """앱카드 위치 시뮬 토글 (매장 안/밖)."""

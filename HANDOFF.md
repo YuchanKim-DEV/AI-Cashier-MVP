@@ -208,6 +208,9 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
 - 분기 위치: intent.response_for(channel), local_client._system_prompt(channel)/_try_fast_path,
   main.py(_verify_speaker 스킵/select_payment 게이트/payment 액션), /app 홈탭은 시나리오 런처로 교체(구 토글 UI+JS 202줄 제거).
 - 테스트: 멘트/프롬프트 분기 유닛 PASS, 서버 통합(앱 채널 physical_card 요청→app_card 고정 결제 완료) PASS.
+- **결제 화면 음성인식 중단** (앱): checkout 진입 시 서버(mic_to_realtime 채널 게이트)+클라(micMuted
+  전송 차단, "🔇 일시중지" 표시) 이중 차단. 바텀시트 닫기(계속 담기)→ `back_to_menu` 액션
+  (screen=ordering, 카트 유지) → 음성인식 재개. 테스트 4/4 PASS.
 
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.
