@@ -197,6 +197,18 @@ python3 -m src.orchestrator.main       # 2) 앱 (.env ENGINE_MODE=local)
 - 테스트 12/12 PASS (렌더/세션/담기/빼기/20m 결제 성공·차단/경계/음성 차단).
 - 기존 `/app`(등록 위저드+구 토글 홈)은 그대로 유지.
 
+## 🔀 채널 분기: 앱 vs 키오스크 결제 대화 (2026-07-12)
+세션에 `channel`(kiosk|app) 도입 — create_session(channel=) → run_session → client.channel.
+- **앱 채널** (`/app/in`, `/app/out` 음성 주문):
+  - "결제할게요" → "총 X원이에요! **장바구니 확인하시고 아래 결제 버튼을 눌러주세요**" (수단 안 물음)
+  - 수단 언급 시 → "**등록된 앱카드로 결제하겠습니다**" + select_payment 는 app_card 고정 (현장카드 없음)
+  - **화자인증 전부 제외** (사용자 지시: 앱=본인 기기라 간주) — _verify_speaker 스킵, 결제 게이트 스킵
+  - action payment 는 수단 무관 app_card 강제 (card_insert 화면 안 거침)
+- **키오스크 채널**: 기존 그대로 ("앱카드 또는 현장카드 중 어떻게?" + 화자인증 게이트 유지)
+- 분기 위치: intent.response_for(channel), local_client._system_prompt(channel)/_try_fast_path,
+  main.py(_verify_speaker 스킵/select_payment 게이트/payment 액션), /app 홈탭은 시나리오 런처로 교체(구 토글 UI+JS 202줄 제거).
+- 테스트: 멘트/프롬프트 분기 유닛 PASS, 서버 통합(앱 채널 physical_card 요청→app_card 고정 결제 완료) PASS.
+
 ## 📝 세션 로그
 - **2026-07-08**: 목표 수립. 코드베이스 시나리오+API 조사. 하드웨어 M1/8GB 확인.
   로컬 스택 확정 후 src/engines 추상화 레이어 구현, 각 엔진 단독 테스트 통과.

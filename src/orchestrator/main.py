@@ -74,6 +74,7 @@ async def run_session(session_id: str):
 
     audio_queue  = sess_data["audio_queue"]
     action_queue = sess_data["action_queue"]
+    channel      = sess_data.get("channel", "kiosk")   # kiosk | app
     session      = SessionState()
     cart         = CartManager()
 
@@ -182,9 +183,10 @@ async def run_session(session_id: str):
         session.conversation_log.append({"role": "user", "text": text})
         print(f"[{sid}] 사용자 로그 추가: {text[:60]!r}")
         push_session_state(session_id, session.to_dict())
-        # 매 발화마다 화자 확인 (등록된 사람이 있을 때)
-        audio_snap = bytes(_check_buffer)
-        loop.create_task(_verify_speaker(audio_snap))
+        # 매 발화마다 화자 확인 (등록된 사람이 있을 때) — 앱 채널은 화자인증 제외
+        if channel != "app":
+            audio_snap = bytes(_check_buffer)
+            loop.create_task(_verify_speaker(audio_snap))
 
     def on_response_done():
         # 로그 처리는 on_ai_transcript_done에서 이미 완료
@@ -310,7 +312,8 @@ async def run_session(session_id: str):
     async def on_function_call(call_id: str, name: str, arguments: str):
         # select_payment 전에 화자 확인 — 다르면 AI가 직접 차단 멘트 생성
         # (action_handler보다 먼저 차단해야 "앱카드로 진행됩니다" 멘트가 안 나옴)
-        if name == "select_payment" and _verified_embedding is not None:
+        # 앱 채널은 화자인증 제외 (등록된 앱카드 = 본인 기기 인증으로 간주)
+        if channel != "app" and name == "select_payment" and _verified_embedding is not None:
             snap = bytes(_check_buffer)
             if len(snap) >= 30_000:
                 try:
@@ -451,6 +454,10 @@ async def run_session(session_id: str):
                 _push({"screen": "checkout"})
 
             elif atype == "payment":
+                # 앱 채널: 결제 수단은 등록된 앱카드 고정 + 화자인증 제외
+                if channel == "app":
+                    await process_payment("app_card")
+                    continue
                 # 결제 직전 화자 강제 재확인 (짧은 발화라도 최소 0.5초 이상이면 체크)
                 if _verified_embedding is not None:
                     snap = bytes(_check_buffer)
@@ -565,6 +572,7 @@ async def run_session(session_id: str):
         client = LocalVoiceClient(**_client_cbs)
     else:
         client = RealtimeClient(api_key=api_key, model=model, voice=voice, **_client_cbs)
+    client.channel = channel   # kiosk | app — 결제 안내 멘트 분기용
 
     try:
         await client.connect()

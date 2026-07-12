@@ -45,7 +45,7 @@ def _stt_hint() -> str:
 
 
 def _system_prompt(lang: str, user_name: Optional[str], is_new_user: bool,
-                   preferences: Optional[str] = None) -> str:
+                   preferences: Optional[str] = None, channel: str = "kiosk") -> str:
     menu = _menu_text()
     if lang == "en":
         p = (
@@ -79,8 +79,14 @@ def _system_prompt(lang: str, user_name: Optional[str], is_new_user: bool,
             "- 취소하면 remove_from_cart 호출.\n"
             "- 추천은 손님이 물어볼 때만 recommend_menu 호출.\n"
             "- 주문이 끝나면 checkout 호출 (장바구니 비었으면 절대 금지).\n"
-            "- 결제 화면에서 앱카드/현장카드 말하면 select_payment 호출.\n"
-            "- 메뉴에 없는 요청은 솔직히 없다고 말해. 절대 지어내지 마.\n"
+            + (
+                # 앱: 결제 수단 선택 없음 — 버튼 안내 + 등록된 앱카드 고정
+                "- 손님이 결제한다고 하면 checkout 호출 후 '장바구니 확인하시고 아래 결제 버튼을 눌러주세요'라고만 안내. 결제 수단은 절대 묻지 마.\n"
+                "- 결제 수단 얘기가 나오면 '등록된 앱카드로 결제하겠습니다'라고 하고 select_payment(app_card) 호출. 현장카드는 없어.\n"
+                if channel == "app" else
+                "- 결제 화면에서 앱카드/현장카드 말하면 select_payment 호출.\n"
+            )
+            + "- 메뉴에 없는 요청은 솔직히 없다고 말해. 절대 지어내지 마.\n"
             "- 할인/무료/이벤트는 존재하지 않아. 절대 언급 금지.\n"
             "- 인사말 반복 금지.\n"
             "예시:\n"
@@ -127,6 +133,7 @@ class LocalVoiceClient:
         self._user_name: Optional[str] = None
         self._is_new_user = True
         self._preferences: Optional[str] = None   # 인식된 손님의 지난 취향 요약
+        self.channel = "kiosk"                    # kiosk | app (main.py 가 세팅) — 결제 멘트 분기
         self._llm = LocalLLM()
         self._chat_tools = to_chat_tools(TOOLS)
         self._stt_hint = _stt_hint()
@@ -222,7 +229,9 @@ class LocalVoiceClient:
         elif kind == "checkout":
             calls = [("checkout", {})]
         elif kind == "select_payment":
-            calls = [("select_payment", {"method": parsed["method"]})]
+            # 앱 채널: 결제 수단은 등록된 앱카드 고정 (현장카드 없음)
+            method = "app_card" if self.channel == "app" else parsed["method"]
+            calls = [("select_payment", {"method": method})]
         elif kind == "view_cart":
             calls = [("view_cart", {})]
         elif kind == "recommend":
@@ -241,7 +250,7 @@ class LocalVoiceClient:
                 results.append(json.loads(self._pending_tool_outputs.pop(call_id, "{}")))
             except json.JSONDecodeError:
                 results.append({})
-        reply = intent.response_for(parsed, results)
+        reply = intent.response_for(parsed, results, channel=self.channel)
         if reply:
             self._history.append({"role": "assistant", "content": reply})
         return reply or None
@@ -250,7 +259,7 @@ class LocalVoiceClient:
         """LLM 호출 + tool call 루프. 최종 어시스턴트 텍스트 반환."""
         messages = [{"role": "system",
                      "content": _system_prompt(self._lang, self._user_name, self._is_new_user,
-                                               self._preferences)}]
+                                               self._preferences, self.channel)}]
         messages += self._history[-16:]
         for _ in range(4):   # tool 루프 최대 4회
             msg = await self._llm.chat(messages, self._chat_tools)

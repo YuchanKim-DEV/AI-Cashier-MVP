@@ -124,8 +124,8 @@ def parse(text: str) -> Optional[dict]:
 
 
 # ─── 응답 템플릿 (규칙 기반이라 항상 사실만 말함) ────────────────────────────
-def response_for(intent: dict, results: list[dict]) -> str:
-    """fast-path 실행 결과 → 손님에게 할 말 (한국어)."""
+def response_for(intent: dict, results: list[dict], channel: str = "kiosk") -> str:
+    """fast-path 실행 결과 → 손님에게 할 말 (한국어). channel: kiosk | app."""
     kind = intent["intent"]
     if kind == "add":
         ok = [r for r in results if r.get("success")]
@@ -148,12 +148,17 @@ def response_for(intent: dict, results: list[dict]) -> str:
         r = results[0] if results else {}
         if r.get("success"):
             total = r.get("cart", {}).get("total", 0)
+            if channel == "app":
+                # 앱: 수단 선택 없음 — 장바구니 확인 + 결제 버튼 안내만
+                return f"총 {total:,}원이에요! 장바구니 확인하시고, 아래 결제 버튼을 눌러주세요~"
             return f"주문 확인해드릴게요, 총 {total:,}원이에요! 앱카드 또는 현장카드 중 어떻게 결제하시겠어요?"
         return "아직 장바구니가 비어있어요! 메뉴 먼저 담아주세요~"
     if kind == "select_payment":
         r = results[0] if results else {}
         if r.get("error") == "speaker_mismatch":
             return r.get("message", "주문하신 분이 직접 말씀해 주셔야 결제가 가능해요.")
+        if channel == "app":
+            return "네, 등록된 앱카드로 결제하겠습니다!"
         label = "앱카드" if intent.get("method") == "app_card" else "현장카드"
         return f"네, {label}로 결제 도와드릴게요!"
     if kind == "view_cart":

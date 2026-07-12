@@ -51,13 +51,14 @@ def _default_state() -> dict:
     }
 
 
-def create_session(session_id: str) -> dict:
+def create_session(session_id: str, channel: str = "kiosk") -> dict:
     sess = {
         "sse_queues": [],
         "audio_queue": asyncio.Queue(maxsize=300),
         "audio_out_queues": [],   # AI 오디오 → 브라우저 스트리밍
         "action_queue": asyncio.Queue(),
         "state": _default_state(),
+        "channel": channel,       # kiosk | app — 결제 안내 멘트 분기 (앱=등록된 앱카드 고정)
     }
     _sessions[session_id] = sess
     _new_session_queue.put_nowait(session_id)
@@ -408,7 +409,7 @@ async def app_store_in():
     """매장 안 시나리오: 스플래시 → 20m 감지 → 메뉴 자동 진입 → 주문/결제 가능."""
     from src.frontend.store_app import build_store_app_html
     session_id = str(uuid.uuid4())
-    create_session(session_id)          # 음성 주문 모드용 세션 워커
+    create_session(session_id, channel="app")   # 음성 주문 모드용 세션 워커 (앱 채널)
     return HTMLResponse(content=build_store_app_html("in", session_id))
 
 
@@ -417,7 +418,7 @@ async def app_store_out():
     """매장 밖 시나리오: 주변 매장 없음 → 둘러보기만 가능, 결제 차단."""
     from src.frontend.store_app import build_store_app_html
     session_id = str(uuid.uuid4())
-    create_session(session_id)
+    create_session(session_id, channel="app")
     return HTMLResponse(content=build_store_app_html("out", session_id))
 
 

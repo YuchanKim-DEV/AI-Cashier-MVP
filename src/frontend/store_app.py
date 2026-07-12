@@ -239,7 +239,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
         <div class="v-text" id="v-text">연결 중...</div>
       </div>
       <div class="v-chat" id="v-chat">
-        <div class="v-hint">🎤 이렇게 말씀해보세요<br>"치즈버거 하나랑 콜라 주세요" → "결제할게요" → "앱카드로 할게요"</div>
+        <div class="v-hint">🎤 이렇게 말씀해보세요<br>"치즈버거 하나랑 콜라 주세요" → "결제할게요"<br>결제는 등록된 앱카드로 진행돼요</div>
       </div>
     </div>
   </div>
@@ -380,7 +380,7 @@ function renderChat(log){
   const box = $('v-chat'); if (!box) return;
   const msgs = log.slice(-8).map(m=>`<div class="v-msg ${m.role==='user'?'user':'ai'}">${m.text}</div>`).join('');
   if (box.dataset.last !== msgs) { box.dataset.last = msgs;
-    box.innerHTML = `<div class="v-hint">🎤 이렇게 말씀해보세요<br>"치즈버거 하나랑 콜라 주세요" → "결제할게요" → "앱카드로 할게요"</div>` + msgs;
+    box.innerHTML = `<div class="v-hint">🎤 이렇게 말씀해보세요<br>"치즈버거 하나랑 콜라 주세요" → "결제할게요"<br>결제는 등록된 앱카드로 진행돼요</div>` + msgs;
     box.scrollTop = box.scrollHeight; }
 }
 
